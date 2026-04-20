@@ -5,7 +5,7 @@ Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
 - Refreshes browser every 1.5 seconds
 - Only sends NEW OTPs (no duplicates on restart)
 - Supports 4-8 digit OTP codes
-- Click on OTP to copy
+- Click on OTP to copy (using copy_text feature)
 - Platform short codes with emojis (🪁TG, 💚WS, 📘FB, etc.)
 """
 
@@ -104,7 +104,7 @@ class OTPBot:
             return "🌍", "#??"
     
     def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram - with platform emoji and short codes"""
+        """Send OTP to Telegram - with copy_text feature (click to copy)"""
         try:
             # Get platform emoji with short code (e.g., 🪁TG, 💚WS, 📘FB)
             platform_display = PLATFORM_EMOJIS.get(platform.upper(), "📱OT")
@@ -122,13 +122,14 @@ class OTPBot:
             # Example: 🇿🇼 #ZW 🪁TG 2637****8341
             message = f"{country_flag} {country_code} {platform_display} {formatted_number}"
             
-            # Keyboard with copy feature
+            # Keyboard with copy_text feature - OTP ক্লিক করলেই কপি হবে
+            # This uses the exact format you requested: {"text": "284729", "copy_text": {"text": "284729"}}
             keyboard = {
                 "inline_keyboard": [
                     [
                         {
-                            "text": f"📋 {otp}",
-                            "callback_data": f"copy_{otp}"
+                            "text": f"{otp}",
+                            "copy_text": {"text": otp}
                         }
                     ],
                     [
@@ -479,7 +480,7 @@ class OTPBot:
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
         print(f"Platform Format: 🪁TG, 💚WS, 📘FB, 📸IG, 📧GM, 🍎AP, 📱OT")
-        print(f"Feature: Click on 📋 OTP to copy")
+        print(f"Feature: Click on OTP button to copy (copy_text feature)")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
         else:
@@ -503,7 +504,7 @@ class OTPBot:
         print("="*60)
         print("Checking for new OTPs every 0.5 seconds")
         print("Browser refreshing every 1.5 seconds")
-        print("Click on 📋 OTP button to copy the code")
+        print("Click on the OTP button to copy the code")
         if not IS_RAILWAY:
             print("Browser window will stay open")
         print("Press Ctrl+C to stop")
