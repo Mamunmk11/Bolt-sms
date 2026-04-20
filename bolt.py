@@ -5,8 +5,8 @@ Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
 - Refreshes browser every 1.5 seconds
 - Only sends NEW OTPs (no duplicates on restart)
 - Supports 4-8 digit OTP codes
-- Click on OTP to copy
-- No box format - simple and clean
+- Click on OTP to copy (Blue button)
+- Clean format with clickable buttons
 """
 
 import os
@@ -78,6 +78,7 @@ class OTPBot:
         try:
             clean_number = re.sub(r'\D', '', str(phone_number))
             
+            # Country flags mapping
             if clean_number.startswith('263'):
                 return "🇿🇼", "#ZW"
             elif clean_number.startswith('880'):
@@ -98,13 +99,23 @@ class OTPBot:
                 return "🇸🇦", "#SA"
             elif clean_number.startswith('971'):
                 return "🇦🇪", "#AE"
+            elif clean_number.startswith('49'):
+                return "🇩🇪", "#DE"
+            elif clean_number.startswith('33'):
+                return "🇫🇷", "#FR"
+            elif clean_number.startswith('81'):
+                return "🇯🇵", "#JP"
+            elif clean_number.startswith('82'):
+                return "🇰🇷", "#KR"
+            elif clean_number.startswith('86'):
+                return "🇨🇳", "#CN"
             else:
                 return "🌍", "#??"
         except:
             return "🌍", "#??"
     
     def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram - no box, simple format"""
+        """Send OTP to Telegram with clickable blue buttons"""
         try:
             platform_emoji = PLATFORM_EMOJIS.get(platform.upper(), "📱")
             
@@ -117,16 +128,16 @@ class OTPBot:
             else:
                 formatted_number = number_str
             
-            # Simple message - NO BOX, just plain text
+            # Simple message (no box, clean text)
             message = f"{country_flag} {country_code} {platform_emoji} {formatted_number}"
             
-            # Keyboard with copy feature
+            # Keyboard with clickable blue buttons
             keyboard = {
                 "inline_keyboard": [
                     [
                         {
                             "text": f"📋 {otp}",
-                            "copy_text": {"text": otp}
+                            "callback_data": f"copy_{otp}"
                         }
                     ],
                     [
@@ -497,8 +508,7 @@ class OTPBot:
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
         print(f"OTP Support: 4-8 digits")
-        print(f"Format: No box - simple text")
-        print(f"Feature: Click on 📋 OTP to copy")
+        print(f"Feature: Click on 📋 OTP button to copy (Blue button)")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
         else:
