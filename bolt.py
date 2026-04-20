@@ -24,15 +24,17 @@ from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
-# ========== কনফিগারেশন (আপডেটেড) ==========
+# ========== কনফিগারেশন ==========
 TELEGRAM_BOT_TOKEN = "8362446113:AAGsrg9iZmeByXmFbig2vdKfmDBUpgppIDM"
 GROUP_CHAT_ID = "-1001153782407"
-
-# Bolt SMS সাইটের ইউআরএল (প্রয়োজনমতো পরিবর্তন করুন)
-BOLT_SMS_URL = "https://boltsms.com/inbox"  # উদাহরণ URL
+USERNAME = "Sohaib12"
+PASSWORD = "mamun1132"
+BASE_URL = "http://93.190.143.35"
+LOGIN_URL = f"{BASE_URL}/ints/Login"
+SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
 # অপশনাল: ক্রোম ড্রাইভার পাথ (Railway এ সাধারণত দরকার নেই)
-CHROME_DRIVER_PATH = None  # None থাকলে PATH থেকে নেবে
+CHROME_DRIVER_PATH = None
 
 # সেন্ড মেসেজের ফরম্যাট সেটিংস
 MESSAGE_FORMAT = "box"  # "box" অথবা "simple"
@@ -40,12 +42,15 @@ MESSAGE_FORMAT = "box"  # "box" অথবা "simple"
 # ডুপ্লিকেট চেকের জন্য ফাইল
 SEEN_OTPS_FILE = "seen_otps.json"
 
+# Railway এ headless mode চালানোর জন্য চেক
+IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+
 # ========== লগিং সেটআপ ==========
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     handlers=[
-        logging.FileHandler("bot.log"),
+        logging.FileHandler("bot.log", encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -77,13 +82,12 @@ class DuplicateManager:
     
     def clear_old_otps(self, days=1):
         """পুরনো OTP মুছে ফেলে (ডিফল্ট ১ দিন)"""
-        # এই ফাংশন অপশনাল, চাইলে বাদ দিন
         pass
 
 # ========== মেসেজ ফরম্যাটার ==========
 class MessageFormatter:
     @staticmethod
-    def format_otp_message(otp_code, sender="Bolt SMS", flag="📱", country_code="BD", logo="🔐"):
+    def format_otp_message(otp_code, sender="SMS", flag="📱", country_code="BD", logo="🔐"):
         """OTP মেসেজ সুন্দর করে ফরম্যাট করে"""
         formatted_num = otp_code
         
@@ -106,7 +110,7 @@ class MessageFormatter:
         
         if MESSAGE_FORMAT == "box":
             lines = ["╭────────────────────╮"]
-            for otp in otp_list[:10]:  # বেশি হলে 10টি দেখাবে
+            for otp in otp_list[:10]:
                 lines.append(f"│ 📱 <code>{otp}</code> │")
             lines.append("╰────────────────────╯")
             return "\n".join(lines)
@@ -133,13 +137,13 @@ class TelegramBot:
             return False
     
     async def send_bulk_messages(self, messages, delay=1):
-        """একাধিক মেসেজ ধীরে ধীরে পাঠায় (রেট লিমিট এড়াতে)"""
+        """একাধিক মেসেজ ধীরে ধীরে পাঠায়"""
         for msg in messages:
             await self.send_message(msg)
             await asyncio.sleep(delay)
     
     def sync_send_message(self, text, parse_mode="HTML"):
-        """সিঙ্ক্রোনাসভাবে মেসেজ পাঠায় (নন-অ্যাসিঙ্ক ফাংশনের জন্য)"""
+        """সিঙ্ক্রোনাসভাবে মেসেজ পাঠায়"""
         try:
             self.bot.send_message(
                 chat_id=self.chat_id,
@@ -163,7 +167,7 @@ class BrowserManager:
         """সেলেনিয়াম ড্রাইভার সেটআপ করে"""
         chrome_options = Options()
         
-        if self.headless:
+        if self.headless or IS_RAILWAY:
             chrome_options.add_argument("--headless=new")
         
         chrome_options.add_argument("--no-sandbox")
@@ -174,8 +178,8 @@ class BrowserManager:
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
-        # Railway এর জন্য প্রয়োজনীয়
-        chrome_options.add_argument("--remote-debugging-port=9222")
+        if IS_RAILWAY:
+            chrome_options.add_argument("--remote-debugging-port=9222")
         
         try:
             if CHROME_DRIVER_PATH:
@@ -190,6 +194,39 @@ class BrowserManager:
             
         except Exception as e:
             logger.error(f"ব্রাউজার সেটআপ করতে ব্যর্থ: {e}")
+            return False
+    
+    def login(self):
+        """ওয়েবসাইটে লগইন করে"""
+        try:
+            logger.info("লগইন পেজে নেওয়া হচ্ছে...")
+            self.driver.get(LOGIN_URL)
+            time.sleep(2)
+            
+            # ইউজারনেম ইনপুট
+            username_field = self.wait.until(EC.presence_of_element_located((By.NAME, "username")))
+            username_field.send_keys(USERNAME)
+            
+            # পাসওয়ার্ড ইনপুট
+            password_field = self.driver.find_element(By.NAME, "password")
+            password_field.send_keys(PASSWORD)
+            
+            # লগইন বাটন ক্লিক
+            login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
+            login_button.click()
+            
+            time.sleep(3)
+            
+            # লগইন সফল হয়েছে কিনা চেক
+            if "login" not in self.driver.current_url.lower():
+                logger.info("লগইন সফল হয়েছে!")
+                return True
+            else:
+                logger.error("লগইন ব্যর্থ হয়েছে!")
+                return False
+                
+        except Exception as e:
+            logger.error(f"লগইন করতে ব্যর্থ: {e}")
             return False
     
     def get_page(self, url):
@@ -216,19 +253,18 @@ class BrowserManager:
         """পৃষ্ঠা থেকে সব OTP এক্সট্রাক্ট করে"""
         otps = []
         try:
-            # সাধারণ OTP প্যাটার্ন
             page_text = self.driver.page_source
             
-            # 4-8 ডিজিটের OTP খোঁজা
+            # বিভিন্ন প্যাটার্নে OTP খোঁজা
             patterns = [
-                r'\b\d{4}\b',      # 4 digit
-                r'\b\d{5}\b',      # 5 digit
-                r'\b\d{6}\b',      # 6 digit
-                r'\b\d{7}\b',      # 7 digit
-                r'\b\d{8}\b',      # 8 digit
-                r'OTP[:\s]*(\d+)', # OTP: 123456
-                r'code[:\s]*(\d+)', # code: 123456
-                r'verification[:\s]*(\d+)' # verification: 123456
+                r'\b\d{4}\b',
+                r'\b\d{5}\b',
+                r'\b\d{6}\b',
+                r'OTP[:\s]*(\d+)',
+                r'code[:\s]*(\d+)',
+                r'verification[:\s]*(\d+)',
+                r'Your OTP is (\d+)',
+                r'(\d{6}) is your OTP'
             ]
             
             for pattern in patterns:
@@ -237,7 +273,12 @@ class BrowserManager:
             
             # ডুপ্লিকেট রিমুভ
             otps = list(set(otps))
-            logger.info(f"{len(otps)} টি OTP পাওয়া গেছে")
+            
+            # শুধু ডিজিট ফিল্টার (৪-৮ ডিজিট)
+            otps = [otp for otp in otps if len(otp) >= 4 and len(otp) <= 8 and otp.isdigit()]
+            
+            if otps:
+                logger.info(f"{len(otps)} টি OTP পাওয়া গেছে: {otps}")
             return otps
             
         except Exception as e:
@@ -270,7 +311,7 @@ class OTPSMSMonitor:
             logger.error(f"টেলিগ্রামে পাঠাতে ব্যর্থ: {e}")
             return False
     
-    def format_and_send_otp(self, otp, source="Bolt SMS"):
+    def format_and_send_otp(self, otp, source="SMS"):
         """OTP ফরম্যাট করে পাঠায়"""
         if self.duplicate_manager.is_duplicate(otp):
             logger.debug(f"ডুপ্লিকেট OTP স্কিপ: {otp}")
@@ -292,7 +333,6 @@ class OTPSMSMonitor:
         """আজকের সব OTP একসাথে পাঠায় (স্টার্টআপে)"""
         logger.info("আজকের সব OTP সংগ্রহ করা হচ্ছে...")
         
-        # বর্তমান পৃষ্ঠা থেকে সব OTP নেয়
         otps = self.browser.extract_otps()
         
         if not otps:
@@ -315,18 +355,23 @@ class OTPSMSMonitor:
         """মূল মনিটরিং লুপ"""
         logger.info("OTP মনিটরিং শুরু হচ্ছে...")
         
-        # প্রথমে ব্রাউজার সেটআপ
+        # ব্রাউজার সেটআপ
         if not self.browser.setup_driver():
             logger.error("ব্রাউজার সেটআপ ব্যর্থ, প্রোগ্রাম বন্ধ হচ্ছে")
             return
         
-        # ওয়েবসাইট লোড
-        if not self.browser.get_page(BOLT_SMS_URL):
-            logger.error("ওয়েবসাইট লোড করতে ব্যর্থ")
+        # লগইন
+        if not self.browser.login():
+            logger.error("লগইন ব্যর্থ, প্রোগ্রাম বন্ধ হচ্ছে")
             self.browser.close()
             return
         
-        # ওয়েট করে পৃষ্ঠা লোড হওয়ার জন্য
+        # SMS পেজে যাও
+        if not self.browser.get_page(SMS_PAGE_URL):
+            logger.error("SMS পেজ লোড করতে ব্যর্থ")
+            self.browser.close()
+            return
+        
         time.sleep(3)
         
         # স্টার্টআপে সব OTP পাঠায়
@@ -340,9 +385,9 @@ class OTPSMSMonitor:
                 if (datetime.now() - self.last_refresh).total_seconds() >= 1.5:
                     self.browser.refresh_page()
                     self.last_refresh = datetime.now()
-                    time.sleep(0.5)  # পৃষ্ঠা লোড হওয়ার জন্য অপেক্ষা
+                    time.sleep(0.5)
                 
-                # OTP চেক (0.5 সেকেন্ড পরপর)
+                # OTP চেক
                 otps = self.browser.extract_otps()
                 
                 for otp in otps:
@@ -354,7 +399,6 @@ class OTPSMSMonitor:
                 if loop_count % 20 == 0:
                     logger.info(f"মনিটরিং চলছে... ({loop_count} সাইকেল)")
                 
-                # 0.5 সেকেন্ড অপেক্ষা
                 time.sleep(0.5)
                 
             except KeyboardInterrupt:
@@ -362,7 +406,7 @@ class OTPSMSMonitor:
                 break
             except Exception as e:
                 logger.error(f"মনিটরিং লুপে এরর: {e}")
-                time.sleep(2)  # এরর হলে একটু অপেক্ষা
+                time.sleep(2)
         
         self.browser.close()
         logger.info("OTP মনিটরিং বন্ধ হয়েছে")
@@ -371,7 +415,7 @@ class OTPSMSMonitor:
 def main():
     print("""
     ╔══════════════════════════════════════╗
-    ║      Bolt SMS - OTP Monitor Bot      ║
+    ║      SMS - OTP Monitor Bot           ║
     ║    সম্পূর্ণ অটোমেটিক OTP মনিটর      ║
     ╚══════════════════════════════════════╝
     """)
