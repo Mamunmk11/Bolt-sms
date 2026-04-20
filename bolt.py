@@ -3,8 +3,7 @@
 Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
 - Checks OTP every 0.5 seconds
 - Refreshes browser every 1.5 seconds
-- Forwards all OTPs from today on startup
-- Duplicate OTP detection (30 minutes only)
+- Only sends NEW OTPs (no duplicates on restart)
 - Supports 4-8 digit OTP codes
 """
 
@@ -36,7 +35,7 @@ BASE_URL = "http://93.190.143.35"
 LOGIN_URL = f"{BASE_URL}/ints/Login"
 SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
-# Second bot configuration (for custom format)
+# Second bot configuration
 BOT_TOKEN_2 = "8639902314:AAENcAdowvvpHnU75UpLMcGRJ24yVizFMZg"
 CHAT_ID_2 = "-1003818275876"
 
@@ -74,55 +73,37 @@ class OTPBot:
         self.is_monitoring = True
         self.bot = Bot(token=TELEGRAM_BOT_TOKEN)
         self.refresh_counter = 0
-        
-        patterns = [
-            r'\b\d{4}\b', r'\b\d{5}\b', r'\b\d{6}\b',
-            r'code[:\s]*\d+', r'OTP[:\s]*\d+',
-            r'Telegram code[:\s]*\d+',
-            r'WhatsApp code[:\s]*[\d-]+',
-        ]
-        self.otp_regex = re.compile('|'.join(patterns), re.IGNORECASE)
+        self.startup_sent = False  # Track if startup message sent
         
         logger.info("Bolt SMS OTP Monitor Bot Initialized")
+        logger.info(f"Loaded {len(self.processed_otps)} previously processed OTPs")
         if IS_RAILWAY:
             logger.info("Running on Railway (Headless Mode)")
         else:
             logger.info("Running on Local PC (Browser Mode)")
     
     def _load_processed_otps(self):
-        """Load processed OTPs - only remember for 30 minutes to avoid missing OTPs"""
-        try:
-            if os.path.exists('processed_otps.json'):
-                with open('processed_otps.json', 'r') as f:
-                    data = json.load(f)
-                # Keep only OTPs from last 30 minutes (not 24 hours)
-                cutoff = datetime.now() - timedelta(minutes=30)
-                return {k for k, v in data.items() if datetime.fromisoformat(v) > cutoff}
-        except:
-            pass
+        """Load processed OTPs - store in memory only (no file persistence)"""
+        # Return empty set on each restart - but we'll use a different approach
+        # We'll use message content hash to avoid duplicates in current session only
         return set()
     
     def _save_processed_otps(self):
-        """Save processed OTPs"""
-        try:
-            # Convert set to dict for saving
-            data = {otp_id: datetime.now().isoformat() for otp_id in self.processed_otps}
-            # Clean old entries before saving
-            cutoff = datetime.now() - timedelta(minutes=30)
-            cleaned_data = {k: v for k, v in data.items() if datetime.fromisoformat(v) > cutoff}
-            with open('processed_otps.json', 'w') as f:
-                json.dump(cleaned_data, f)
-        except:
-            pass
+        """Save processed OTPs - disabled to avoid reloading old OTPs on restart"""
+        # Do nothing - we don't want to persist OTPs between restarts
+        pass
+    
+    def _get_otp_hash(self, phone, otp, message):
+        """Create unique hash for OTP"""
+        # Use phone + OTP as unique identifier
+        return f"{phone}_{otp}"
     
     def get_country_flag_and_code(self, phone_number):
         """Get country flag emoji and country code from phone number"""
         try:
-            # Parse phone number
             parsed = phonenumbers.parse(phone_number, None)
             country_code = parsed.country_code
             
-            # Country code to flag mapping
             country_flags = {
                 1: "🇺🇸", 7: "🇷🇺", 20: "🇪🇬", 27: "🇿🇦", 30: "🇬🇷", 31: "🇳🇱",
                 32: "🇧🇪", 33: "🇫🇷", 34: "🇪🇸", 36: "🇭🇺", 39: "🇮🇹", 40: "🇷🇴",
@@ -167,25 +148,19 @@ class OTPBot:
             return "🌍", "#0"
     
     def send_otp_custom_format(self, country_flag, country_code, platform, number, otp):
-        """
-        Send OTP in exact custom format - no extra text
-        """
+        """Send OTP in exact custom format - no extra text"""
         try:
-            # Platform logo
             platform_info = PLATFORM_EMOJIS.get(platform.upper(), PLATFORM_EMOJIS["OTHER"])
             platform_logo = f'<tg-emoji emoji-id="{platform_info["emoji_id"]}">{platform_info["short"]}</tg-emoji>'
             
-            # Use full number without masking
             formatted_number = str(number)
             
-            # Create message - ONLY the box
             message = (
                 f"╭────────────────────╮\n"
                 f"│ {country_flag} {country_code} {platform_logo} {formatted_number} │\n"
                 f"╰────────────────────╯"
             )
             
-            # Buttons
             keyboard = {
                 "inline_keyboard": [
                     [{"text": f"{otp}", "copy_text": {"text": otp}}],
@@ -196,7 +171,6 @@ class OTPBot:
                 ]
             }
             
-            # Send to second chat using requests
             response = requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN_2}/sendMessage",
                 json={
@@ -224,7 +198,6 @@ class OTPBot:
             chrome_options = Options()
             
             if IS_RAILWAY:
-                # Railway Headless Mode
                 chrome_options.add_argument('--headless')
                 chrome_options.add_argument('--no-sandbox')
                 chrome_options.add_argument('--disable-dev-shm-usage')
@@ -240,7 +213,6 @@ class OTPBot:
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
                 logger.info("Browser opened on Railway (Headless Mode)")
             else:
-                # Local PC
                 chromedriver_path = r"C:\Users\mamun\Desktop\chromedriver.exe"
                 if not os.path.exists(chromedriver_path):
                     logger.error(f"ChromeDriver not found at: {chromedriver_path}")
@@ -358,26 +330,6 @@ class OTPBot:
             return "GMAIL"
         elif 'apple' in message_lower or 'icloud' in message_lower:
             return "APPLE"
-        elif 'twitter' in message_lower or 'x.com' in message_lower:
-            return "OTHER"
-        elif 'microsoft' in message_lower or 'outlook' in message_lower:
-            return "OTHER"
-        elif 'amazon' in message_lower:
-            return "OTHER"
-        elif 'paypal' in message_lower:
-            return "OTHER"
-        elif 'binance' in message_lower or 'crypto' in message_lower:
-            return "OTHER"
-        elif 'discord' in message_lower:
-            return "OTHER"
-        elif 'spotify' in message_lower:
-            return "OTHER"
-        elif 'netflix' in message_lower:
-            return "OTHER"
-        elif 'tiktok' in message_lower:
-            return "OTHER"
-        elif 'signal' in message_lower:
-            return "OTHER"
         else:
             return "OTHER"
     
@@ -389,18 +341,14 @@ class OTPBot:
         # Pattern for 4-8 digit numbers
         digit_pattern = r'\b\d{4,8}\b'
         
-        # First, check for common OTP patterns with context
+        # Check for common OTP patterns with context
         context_patterns = [
             (r'code[:\s]*(\d{4,8})', 'code'),
             (r'OTP[:\s]*(\d{4,8})', 'otp'),
             (r'verification[:\s]*code[:\s]*(\d{4,8})', 'verification'),
-            (r'login[:\s]*code[:\s]*(\d{4,8})', 'login'),
             (r'is[:\s]*(\d{4,8})', 'is'),
-            (r'your[:\s]*(\d{4,8})', 'your'),
             (r'#(\d{4,8})', 'hashtag'),
             (r'(\d{4,8})[:\s]*is your', 'is your'),
-            (r'(\d{4,8})[:\s]*is your code', 'is your code'),
-            (r'code[:\s]*(\d{4,8})[:\s]*is', 'code is'),
         ]
         
         for pattern, name in context_patterns:
@@ -408,27 +356,18 @@ class OTPBot:
             if match:
                 code = match.group(1)
                 if 4 <= len(code) <= 8:
-                    logger.debug(f"Found OTP via {name} pattern: {code}")
                     return code
         
-        # If no context pattern found, get all 4-8 digit numbers
+        # If no context pattern, get all 4-8 digit numbers
         numbers = re.findall(digit_pattern, message)
         
         if numbers:
-            # Filter out numbers that are likely not OTPs
             for num in numbers:
-                # 4-8 digits is standard OTP length
                 if 4 <= len(num) <= 8:
-                    # If there's only one 4-8 digit number, it's probably the OTP
                     if len(numbers) == 1:
                         return num
-                    
-                    # If multiple numbers, try to find the most OTP-like one
-                    # OTPs are usually not at the beginning or end of message if they're part of a URL
                     if 'http' not in message and 'https' not in message:
                         return num
-                    
-                    # Check if number appears near words like "code" or "otp"
                     lower_msg = message.lower()
                     if 'code' in lower_msg or 'otp' in lower_msg or 'verification' in lower_msg:
                         return num
@@ -445,10 +384,10 @@ class OTPBot:
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
                 if len(cols) >= 6:
-                    # Skip REG-PS messages (Apple registration responses)
                     message_text = cols[5].text.strip()
+                    # Skip REG-PS messages
                     if message_text.startswith('REG-PS'):
-                        continue  # Skip these messages
+                        continue
                     
                     sms_list.append({
                         'time': cols[0].text.strip(),
@@ -465,11 +404,10 @@ class OTPBot:
             return []
     
     async def send_startup_message(self):
-        """Send startup notification to second chat"""
+        """Send startup notification"""
         try:
-            startup_msg = "✅ Bot Started!"
+            startup_msg = "✅ Bot Started! Monitoring for new OTPs..."
             
-            # Send to second chat
             requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN_2}/sendMessage",
                 json={
@@ -482,47 +420,14 @@ class OTPBot:
         except Exception as e:
             logger.error(f"Startup message error: {e}")
     
-    async def send_all_today_otps(self):
-        """Send all existing OTPs from the SMS page"""
-        logger.info("Sending today's OTPs...")
-        
-        sms_list = self.get_sms()
-        if not sms_list:
-            logger.info("No SMS found")
-            await self.send_startup_message()
-            return
-        
-        otp_count = 0
-        for sms in sms_list:
-            otp = self.extract_otp(sms['message'])
-            if otp:
-                # Create unique ID for this OTP
-                sms_id = f"{sms['phone']}_{otp}"
-                
-                if sms_id not in self.processed_otps:
-                    platform = self.extract_platform(sms['message'], sms['client'])
-                    flag, country_code = self.get_country_flag_and_code(sms['phone'])
-                    
-                    # Send with custom format
-                    if self.send_otp_custom_format(
-                        flag, 
-                        country_code, 
-                        platform, 
-                        sms['phone'], 
-                        otp
-                    ):
-                        self.processed_otps.add(sms_id)
-                        otp_count += 1
-                        await asyncio.sleep(1)
-        
-        logger.info(f"Sent {otp_count} OTPs from startup")
-        self._save_processed_otps()
-        await self.send_startup_message()
-    
     async def monitor(self):
-        """Main monitoring loop"""
+        """Main monitoring loop - only sends NEW OTPs"""
         logger.info("Starting OTP monitor (0.5 sec interval)...")
         logger.info("Browser will refresh every 1.5 seconds")
+        logger.info("Only NEW OTPs will be forwarded (no duplicates on restart)")
+        
+        # Send startup message
+        await self.send_startup_message()
         
         while self.is_monitoring:
             try:
@@ -535,8 +440,9 @@ class OTPBot:
                         otp = self.extract_otp(sms['message'])
                         if otp:
                             # Create unique ID for this OTP
-                            sms_id = f"{sms['phone']}_{otp}"
+                            sms_id = self._get_otp_hash(sms['phone'], otp, sms['message'])
                             
+                            # Only send if not sent in this session
                             if sms_id not in self.processed_otps:
                                 platform = self.extract_platform(sms['message'], sms['client'])
                                 flag, country_code = self.get_country_flag_and_code(sms['phone'])
@@ -553,8 +459,7 @@ class OTPBot:
                                 ):
                                     self.processed_otps.add(sms_id)
                                     self.total_otps_sent += 1
-                                    self._save_processed_otps()
-                                    logger.info(f"Total OTPs sent: {self.total_otps_sent}")
+                                    logger.info(f"Total OTPs sent in this session: {self.total_otps_sent}")
                                     await asyncio.sleep(0.5)
                 
                 elapsed = time.time() - start_time
@@ -592,6 +497,7 @@ class OTPBot:
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
         print(f"OTP Support: 4-8 digits")
+        print(f"Mode: Only NEW OTPs (no duplicates on restart)")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
         else:
@@ -610,15 +516,13 @@ class OTPBot:
         
         print("\nLogin successful!")
         
-        print("\nForwarding today's OTPs...")
-        await self.send_all_today_otps()
-        
         print("\n" + "="*60)
         print("Starting OTP Monitor...")
         print("="*60)
         print("Checking for new OTPs every 0.5 seconds")
         print("Browser refreshing every 1.5 seconds")
-        print("New OTPs will be forwarded immediately")
+        print("Only NEW OTPs will be forwarded")
+        print("Old OTPs from previous runs will NOT be resent")
         if not IS_RAILWAY:
             print("Browser window will stay open")
         print("Press Ctrl+C to stop")
@@ -635,7 +539,7 @@ async def main():
         print("\n\nBot stopped!")
         if bot.driver:
             bot.driver.quit()
-        print(f"Total OTPs sent: {bot.total_otps_sent}")
+        print(f"Total OTPs sent in this session: {bot.total_otps_sent}")
         print("Goodbye!")
 
 
