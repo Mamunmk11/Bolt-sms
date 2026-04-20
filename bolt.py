@@ -13,8 +13,7 @@ import time
 import json
 import logging
 import re
-import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -22,10 +21,10 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+import requests
 
 # ========== কনফিগারেশন (আপডেটেড) ==========
-TELEGRAM_BOT_TOKEN = "8618305528:AAF64PwFIlsw091Hbns8fGQqvwVSW6_4iCY"
+TELEGRAM_BOT_TOKEN = "8362446113:AAGsrg9iZmeByXmFbig2"  # আপনার নতুন টোকেন
 GROUP_CHAT_ID = "-1001153782407"
 
 # Bolt SMS সাইটের ইউআরএল (প্রয়োজনমতো পরিবর্তন করুন)
@@ -74,11 +73,6 @@ class DuplicateManager:
         self.seen_otps.add(otp_text)
         self.save_seen_otps()
         return False
-    
-    def clear_old_otps(self, days=1):
-        """পুরনো OTP মুছে ফেলে (ডিফল্ট ১ দিন)"""
-        # এই ফাংশন অপশনাল, চাইলে বাদ দিন
-        pass
 
 # ========== মেসেজ ফরম্যাটার ==========
 class MessageFormatter:
@@ -106,50 +100,54 @@ class MessageFormatter:
         
         if MESSAGE_FORMAT == "box":
             lines = ["╭────────────────────╮"]
-            for otp in otp_list[:10]:  # বেশি হলে 10টি দেখাবে
+            for otp in otp_list[:10]:
                 lines.append(f"│ 📱 <code>{otp}</code> │")
             lines.append("╰────────────────────╯")
             return "\n".join(lines)
         else:
             return "\n".join([f"📱 <code>{otp}</code>" for otp in otp_list[:10]])
 
-# ========== টেলিগ্রাম বট ==========
+# ========== টেলিগ্রাম বট (সরাসরি requests ব্যবহার করে) ==========
 class TelegramBot:
     def __init__(self, token, chat_id):
-        self.bot = Bot(token=token)
+        self.token = token
         self.chat_id = chat_id
     
-    async def send_message(self, text, parse_mode="HTML"):
+    def send_message(self, text, parse_mode="HTML"):
+        """সরাসরি requests ব্যবহার করে মেসেজ পাঠায়"""
+        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+        payload = {
+            "chat_id": self.chat_id,
+            "text": text,
+            "parse_mode": parse_mode
+        }
+        
         try:
-            await self.bot.send_message(
-                chat_id=self.chat_id,
-                text=text,
-                parse_mode=parse_mode
-            )
-            logger.info(f"মেসেজ পাঠানো হয়েছে: {text[:50]}...")
-            return True
+            response = requests.post(url, json=payload, timeout=10)
+            if response.status_code == 200:
+                logger.info(f"✅ মেসেজ পাঠানো হয়েছে: {text[:50]}...")
+                return True
+            else:
+                logger.error(f"❌ টেলিগ্রাম এপি আই এরর: {response.text}")
+                return False
         except Exception as e:
-            logger.error(f"মেসেজ পাঠাতে ব্যর্থ: {e}")
+            logger.error(f"❌ মেসেজ পাঠাতে ব্যর্থ: {e}")
             return False
     
-    async def send_bulk_messages(self, messages, delay=1):
-        """একাধিক মেসেজ ধীরে ধীরে পাঠায় (রেট লিমিট এড়াতে)"""
-        for msg in messages:
-            await self.send_message(msg)
-            await asyncio.sleep(delay)
-    
-    def sync_send_message(self, text, parse_mode="HTML"):
-        """সিঙ্ক্রোনাসভাবে মেসেজ পাঠায় (নন-অ্যাসিঙ্ক ফাংশনের জন্য)"""
+    def test_connection(self):
+        """বট টোকেন কাজ করছে কিনা টেস্ট করে"""
+        url = f"https://api.telegram.org/bot{self.token}/getMe"
         try:
-            self.bot.send_message(
-                chat_id=self.chat_id,
-                text=text,
-                parse_mode=parse_mode
-            )
-            logger.info(f"মেসেজ পাঠানো হয়েছে: {text[:50]}...")
-            return True
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('ok'):
+                    logger.info(f"✅ বট সংযোগ সফল: @{data['result']['username']}")
+                    return True
+            logger.error(f"❌ বট টোকেন বৈধ নয়: {response.text}")
+            return False
         except Exception as e:
-            logger.error(f"মেসেজ পাঠাতে ব্যর্থ: {e}")
+            logger.error(f"❌ সংযোগ টেস্ট ব্যর্থ: {e}")
             return False
 
 # ========== ব্রাউজার ম্যানেজার ==========
@@ -173,8 +171,6 @@ class BrowserManager:
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-        
-        # Railway এর জন্য প্রয়োজনীয়
         chrome_options.add_argument("--remote-debugging-port=9222")
         
         try:
@@ -185,70 +181,68 @@ class BrowserManager:
                 self.driver = webdriver.Chrome(options=chrome_options)
             
             self.wait = WebDriverWait(self.driver, 10)
-            logger.info("ব্রাউজার সফলভাবে সেটআপ হয়েছে")
+            logger.info("✅ ব্রাউজার সফলভাবে সেটআপ হয়েছে")
             return True
             
         except Exception as e:
-            logger.error(f"ব্রাউজার সেটআপ করতে ব্যর্থ: {e}")
+            logger.error(f"❌ ব্রাউজার সেটআপ করতে ব্যর্থ: {e}")
             return False
     
     def get_page(self, url):
         """পৃষ্ঠা লোড করে"""
         try:
             self.driver.get(url)
-            logger.info(f"পৃষ্ঠা লোড হয়েছে: {url}")
+            logger.info(f"✅ পৃষ্ঠা লোড হয়েছে: {url}")
             return True
         except Exception as e:
-            logger.error(f"পৃষ্ঠা লোড করতে ব্যর্থ: {e}")
+            logger.error(f"❌ পৃষ্ঠা লোড করতে ব্যর্থ: {e}")
             return False
     
     def refresh_page(self):
         """পৃষ্ঠা রিফ্রেশ করে"""
         try:
             self.driver.refresh()
-            logger.info("পৃষ্ঠা রিফ্রেশ করা হয়েছে")
+            logger.info("🔄 পৃষ্ঠা রিফ্রেশ করা হয়েছে")
             return True
         except Exception as e:
-            logger.error(f"পৃষ্ঠা রিফ্রেশ করতে ব্যর্থ: {e}")
+            logger.error(f"❌ পৃষ্ঠা রিফ্রেশ করতে ব্যর্থ: {e}")
             return False
     
     def extract_otps(self):
         """পৃষ্ঠা থেকে সব OTP এক্সট্রাক্ট করে"""
         otps = []
         try:
-            # সাধারণ OTP প্যাটার্ন
             page_text = self.driver.page_source
             
-            # 4-8 ডিজিটের OTP খোঁজা
             patterns = [
-                r'\b\d{4}\b',      # 4 digit
-                r'\b\d{5}\b',      # 5 digit
-                r'\b\d{6}\b',      # 6 digit
-                r'\b\d{7}\b',      # 7 digit
-                r'\b\d{8}\b',      # 8 digit
-                r'OTP[:\s]*(\d+)', # OTP: 123456
-                r'code[:\s]*(\d+)', # code: 123456
-                r'verification[:\s]*(\d+)' # verification: 123456
+                r'\b\d{4}\b',
+                r'\b\d{5}\b',
+                r'\b\d{6}\b',
+                r'\b\d{7}\b',
+                r'\b\d{8}\b',
+                r'OTP[:\s]*(\d+)',
+                r'code[:\s]*(\d+)',
+                r'verification[:\s]*(\d+)'
             ]
             
             for pattern in patterns:
                 matches = re.findall(pattern, page_text, re.IGNORECASE)
                 otps.extend(matches)
             
-            # ডুপ্লিকেট রিমুভ
             otps = list(set(otps))
-            logger.info(f"{len(otps)} টি OTP পাওয়া গেছে")
+            if otps:
+                logger.info(f"📱 {len(otps)} টি OTP পাওয়া গেছে")
             return otps
             
         except Exception as e:
-            logger.error(f"OTP এক্সট্রাক্ট করতে ব্যর্থ: {e}")
+            logger.error(f"❌ OTP এক্সট্রাক্ট করতে ব্যর্থ: {e}")
             return []
     
     def close(self):
         """ব্রাউজার বন্ধ করে"""
         if self.driver:
             self.driver.quit()
-            logger.info("ব্রাউজার বন্ধ করা হয়েছে")
+            logger.info("🔒 ব্রাউজার বন্ধ করা হয়েছে")
 
 # ========== মেইন মনিটর ক্লাস ==========
 class OTPSMSMonitor:
@@ -262,13 +256,8 @@ class OTPSMSMonitor:
         self.processed_otps = set()
     
     def send_telegram_message(self, text):
-        """সিঙ্ক্রোনাসভাবে টেলিগ্রাম মেসেজ পাঠায়"""
-        try:
-            self.telegram.sync_send_message(text)
-            return True
-        except Exception as e:
-            logger.error(f"টেলিগ্রামে পাঠাতে ব্যর্থ: {e}")
-            return False
+        """টেলিগ্রাম মেসেজ পাঠায়"""
+        return self.telegram.send_message(text)
     
     def format_and_send_otp(self, otp, source="Bolt SMS"):
         """OTP ফরম্যাট করে পাঠায়"""
@@ -285,18 +274,17 @@ class OTPSMSMonitor:
         )
         
         self.send_telegram_message(message)
-        logger.info(f"নতুন OTP পাঠানো হয়েছে: {otp}")
+        logger.info(f"✨ নতুন OTP পাঠানো হয়েছে: {otp}")
         return True
     
     def send_all_todays_otps(self):
         """আজকের সব OTP একসাথে পাঠায় (স্টার্টআপে)"""
-        logger.info("আজকের সব OTP সংগ্রহ করা হচ্ছে...")
+        logger.info("📥 আজকের সব OTP সংগ্রহ করা হচ্ছে...")
         
-        # বর্তমান পৃষ্ঠা থেকে সব OTP নেয়
         otps = self.browser.extract_otps()
         
         if not otps:
-            logger.info("কোনো OTP পাওয়া যায়নি")
+            logger.info("📭 কোনো OTP পাওয়া যায়নি")
             return
         
         new_otps = []
@@ -305,32 +293,39 @@ class OTPSMSMonitor:
                 new_otps.append(otp)
         
         if new_otps:
-            logger.info(f"{len(new_otps)} টি নতুন OTP পাওয়া গেছে")
+            logger.info(f"🎉 {len(new_otps)} টি নতুন OTP পাওয়া গেছে")
             for otp in new_otps:
                 self.format_and_send_otp(otp)
         else:
-            logger.info("সব OTP ই আগে দেখা হয়েছে")
+            logger.info("📌 সব OTP ই আগে দেখা হয়েছে")
     
     def monitor_loop(self):
         """মূল মনিটরিং লুপ"""
-        logger.info("OTP মনিটরিং শুরু হচ্ছে...")
+        logger.info("🚀 OTP মনিটরিং শুরু হচ্ছে...")
         
-        # প্রথমে ব্রাউজার সেটআপ
+        # বট টোকেন টেস্ট
+        if not self.telegram.test_connection():
+            logger.error("❌ বট টোকেন কাজ করছে না! স্ক্রিপ্ট বন্ধ হচ্ছে।")
+            return
+        
+        # ব্রাউজার সেটআপ
         if not self.browser.setup_driver():
-            logger.error("ব্রাউজার সেটআপ ব্যর্থ, প্রোগ্রাম বন্ধ হচ্ছে")
+            logger.error("❌ ব্রাউজার সেটআপ ব্যর্থ, প্রোগ্রাম বন্ধ হচ্ছে")
             return
         
         # ওয়েবসাইট লোড
         if not self.browser.get_page(BOLT_SMS_URL):
-            logger.error("ওয়েবসাইট লোড করতে ব্যর্থ")
+            logger.error("❌ ওয়েবসাইট লোড করতে ব্যর্থ")
             self.browser.close()
             return
         
-        # ওয়েট করে পৃষ্ঠা লোড হওয়ার জন্য
         time.sleep(3)
         
         # স্টার্টআপে সব OTP পাঠায়
         self.send_all_todays_otps()
+        
+        # স্টার্টআপ সফল মেসেজ
+        self.send_telegram_message("✅ Bolt SMS মনিটর বট চালু হয়েছে! নতুন OTP আসলে আপনাকে জানানো হবে।")
         
         # মনিটরিং লুপ
         loop_count = 0
@@ -340,9 +335,9 @@ class OTPSMSMonitor:
                 if (datetime.now() - self.last_refresh).total_seconds() >= 1.5:
                     self.browser.refresh_page()
                     self.last_refresh = datetime.now()
-                    time.sleep(0.5)  # পৃষ্ঠা লোড হওয়ার জন্য অপেক্ষা
+                    time.sleep(0.5)
                 
-                # OTP চেক (0.5 সেকেন্ড পরপর)
+                # OTP চেক
                 otps = self.browser.extract_otps()
                 
                 for otp in otps:
@@ -352,20 +347,19 @@ class OTPSMSMonitor:
                 
                 loop_count += 1
                 if loop_count % 20 == 0:
-                    logger.info(f"মনিটরিং চলছে... ({loop_count} সাইকেল)")
+                    logger.info(f"⏳ মনিটরিং চলছে... ({loop_count} সাইকেল)")
                 
-                # 0.5 সেকেন্ড অপেক্ষা
                 time.sleep(0.5)
                 
             except KeyboardInterrupt:
-                logger.info("ব্যবহারকারী দ্বারা বন্ধ করা হয়েছে")
+                logger.info("🛑 ব্যবহারকারী দ্বারা বন্ধ করা হয়েছে")
                 break
             except Exception as e:
-                logger.error(f"মনিটরিং লুপে এরর: {e}")
-                time.sleep(2)  # এরর হলে একটু অপেক্ষা
+                logger.error(f"❌ মনিটরিং লুপে এরর: {e}")
+                time.sleep(2)
         
         self.browser.close()
-        logger.info("OTP মনিটরিং বন্ধ হয়েছে")
+        logger.info("🔚 OTP মনিটরিং বন্ধ হয়েছে")
 
 # ========== মেইন ফাংশন ==========
 def main():
