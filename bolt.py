@@ -6,7 +6,7 @@ Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
 - Only sends NEW OTPs (no duplicates on restart)
 - Supports 4-8 digit OTP codes
 - Click on OTP to copy
-- Platform emoji with short codes (🪁TG, 💚WS, 📘FB, etc.)
+- Platform short codes with emojis (🪁TG, 💚WS, 📘FB, etc.)
 """
 
 import os
@@ -118,7 +118,7 @@ class OTPBot:
             else:
                 formatted_number = number_str
             
-            # Message format: flag country_code platform_display masked_number
+            # Simple message - flag country_code platform_display masked_number
             # Example: 🇿🇼 #ZW 🪁TG 2637****8341
             message = f"{country_flag} {country_code} {platform_display} {formatted_number}"
             
