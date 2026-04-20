@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """
 Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
-- Checks OTP every 0.5 seconds
-- Refreshes browser every 1.5 seconds
-- Only sends NEW OTPs (no duplicates on restart)
-- Supports 4-8 digit OTP codes
 """
 
 import os
@@ -89,7 +85,7 @@ class OTPBot:
             return "🌍", "#0"
     
     async def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram group"""
+        """Send OTP to Telegram group - Fixed version without copy_text issue"""
         try:
             platform_info = PLATFORM_EMOJIS.get(platform.upper(), PLATFORM_EMOJIS["OTHER"])
             platform_logo = f'<tg-emoji emoji-id="{platform_info["emoji_id"]}">{platform_info["short"]}</tg-emoji>'
@@ -100,9 +96,9 @@ class OTPBot:
                 f"╰────────────────────╯"
             )
             
-            # Buttons with your links
+            # Fixed buttons - using callback_data instead of copy_text
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(text=f"📋 {otp}", copy_text=otp)],
+                [InlineKeyboardButton(text=f"📋 {otp}", callback_data=f"copy_{otp}")],
                 [
                     InlineKeyboardButton(text="🔢 Number Bot", url="https://t.me/Updateotpnew_bot"),
                     InlineKeyboardButton(text="📢 Main Channel", url="https://t.me/updaterange")
@@ -217,12 +213,11 @@ class OTPBot:
             
             login_clicked = False
             
-            # Try different ways to find login button
             try:
                 login_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
                 login_btn.click()
                 login_clicked = True
-                logger.info("Login button clicked (button submit)")
+                logger.info("Login button clicked")
             except:
                 pass
             
@@ -231,25 +226,7 @@ class OTPBot:
                     login_btn = self.driver.find_element(By.XPATH, "//input[@type='submit']")
                     login_btn.click()
                     login_clicked = True
-                    logger.info("Login button clicked (input submit)")
-                except:
-                    pass
-            
-            if not login_clicked:
-                try:
-                    login_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Login') or contains(text(), 'Sign In')]")
-                    login_btn.click()
-                    login_clicked = True
-                    logger.info("Login button clicked (text match)")
-                except:
-                    pass
-            
-            if not login_clicked:
-                try:
-                    login_btn = self.driver.find_element(By.CLASS_NAME, "btn-primary")
-                    login_btn.click()
-                    login_clicked = True
-                    logger.info("Login button clicked (class name)")
+                    logger.info("Login button clicked")
                 except:
                     pass
             
@@ -258,7 +235,7 @@ class OTPBot:
                     form = self.driver.find_element(By.TAG_NAME, "form")
                     form.submit()
                     login_clicked = True
-                    logger.info("Form submitted directly")
+                    logger.info("Form submitted")
                 except:
                     pass
             
@@ -309,22 +286,18 @@ class OTPBot:
         if not isinstance(message, str):
             return None
         
-        # Pattern 1: #16010 (Facebook)
         match = re.search(r'#(\d{4,8})', message)
         if match:
             return match.group(1)
         
-        # Pattern 2: code 47543
         match = re.search(r'(?:code|CODE|OTP|otp)[:\s]*(\d{4,8})', message)
         if match:
             return match.group(1)
         
-        # Pattern 3: is 342761
         match = re.search(r'is[:\s]*(\d{4,8})', message)
         if match:
             return match.group(1)
         
-        # Pattern 4: any 4-8 digit number
         numbers = re.findall(r'\b(\d{4,8})\b', message)
         for num in numbers:
             if not num.startswith(('263', '880', '1', '44', '91', '92')):
