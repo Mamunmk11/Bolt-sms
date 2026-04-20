@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
 Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
+- Checks OTP every 0.5 seconds
+- Refreshes browser every 1.5 seconds
+- Only sends NEW OTPs (no duplicates on restart)
+- Supports 4-8 digit OTP codes
+- Click on OTP to copy
 """
 
 import os
@@ -21,6 +26,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import WebDriverException, TimeoutException
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CallbackQueryHandler
 
 # ========== CONFIGURATION ==========
 TELEGRAM_BOT_TOKEN = "8618305528:AAF64PwFIlsw091Hbns8fGQqvwVSW6_4iCY"
@@ -33,13 +39,13 @@ SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
 # Platform emoji mapping
 PLATFORM_EMOJIS = {
-    "WHATSAPP": {"short": "WS", "emoji": "💚"},
-    "TELEGRAM": {"short": "TG", "emoji": "📨"},
-    "FACEBOOK": {"short": "FB", "emoji": "📘"},
-    "INSTAGRAM": {"short": "IG", "emoji": "📸"},
-    "GMAIL": {"short": "GM", "emoji": "📧"},
-    "APPLE": {"short": "AP", "emoji": "🍎"},
-    "OTHER": {"short": "OT", "emoji": "📱"}
+    "TELEGRAM": "🪁",
+    "WHATSAPP": "💚",
+    "FACEBOOK": "📘",
+    "INSTAGRAM": "📸",
+    "GMAIL": "📧",
+    "APPLE": "🍎",
+    "OTHER": "📱"
 }
 
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
@@ -71,7 +77,6 @@ class OTPBot:
     def get_country_flag_and_code(self, phone_number):
         """Get country flag emoji and country code from phone number"""
         try:
-            # Remove any non-digit characters
             clean_number = re.sub(r'\D', '', str(phone_number))
             
             # Zimbabwe numbers start with 263
@@ -95,27 +100,18 @@ class OTPBot:
             # Nigeria starts with 234
             elif clean_number.startswith('234'):
                 return "🇳🇬", "#NG"
-            # Egypt starts with 20
-            elif clean_number.startswith('20'):
-                return "🇪🇬", "#EG"
-            # Saudi Arabia starts with 966
-            elif clean_number.startswith('966'):
-                return "🇸🇦", "#SA"
-            # UAE starts with 971
-            elif clean_number.startswith('971'):
-                return "🇦🇪", "#AE"
             else:
                 return "🌍", "#??"
         except:
             return "🌍", "#??"
     
     async def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram group"""
+        """Send OTP to Telegram group - OTP ক্লিক করলে কপি হবে"""
         try:
-            platform_info = PLATFORM_EMOJIS.get(platform.upper(), PLATFORM_EMOJIS["OTHER"])
-            platform_logo = platform_info["emoji"]
+            # Get platform emoji
+            platform_emoji = PLATFORM_EMOJIS.get(platform.upper(), "📱")
             
-            # Format the number - show last 4 digits masked
+            # Mask the number
             number_str = str(number)
             if len(number_str) >= 8:
                 formatted_number = number_str[:4] + "****" + number_str[-4:]
@@ -124,13 +120,14 @@ class OTPBot:
             else:
                 formatted_number = number_str
             
+            # Message box
             message = (
                 f"╭────────────────────╮\n"
-                f"│ {country_flag} {country_code} {platform_logo} {formatted_number} │\n"
+                f"│ {country_flag} {country_code} {platform_emoji} {formatted_number} │\n"
                 f"╰────────────────────╯"
             )
             
-            # Buttons
+            # ক্লিকেবল OTP বাটন - টাচ করলেই কপি হবে
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton(text=f"📋 {otp}", callback_data=f"copy_{otp}")],
                 [
@@ -438,6 +435,8 @@ class OTPBot:
         print(f"Telegram Chat: {GROUP_CHAT_ID}")
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
+        print(f"OTP Support: 4-8 digits")
+        print(f"Feature: Click on OTP to copy")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
         else:
@@ -461,6 +460,7 @@ class OTPBot:
         print("="*60)
         print("Checking for new OTPs every 0.5 seconds")
         print("Browser refreshing every 1.5 seconds")
+        print("Click on OTP button to copy the code")
         if not IS_RAILWAY:
             print("Browser window will stay open")
         print("Press Ctrl+C to stop")
