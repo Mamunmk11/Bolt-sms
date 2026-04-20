@@ -32,13 +32,13 @@ SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
 # Platform emoji mapping
 PLATFORM_EMOJIS = {
-    "TELEGRAM": "📨",
-    "WHATSAPP": "💚",
-    "FACEBOOK": "📘",
-    "INSTAGRAM": "📸",
-    "GMAIL": "📧",
-    "APPLE": "🍎",
-    "OTHER": "📱"
+    "TELEGRAM": "🪁TG",
+    "WHATSAPP": "💚WS",
+    "FACEBOOK": "📘FB",
+    "INSTAGRAM": "📸IG",
+    "GMAIL": "📧GM",
+    "APPLE": "🍎AP",
+    "OTHER": "📱OT"
 }
 
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
@@ -91,11 +91,12 @@ class OTPBot:
             return "🌍", "#??"
     
     def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP - Clean format without any extra characters"""
+        """Send OTP in exact format - no extra spaces, no extra characters"""
         try:
-            platform_emoji = PLATFORM_EMOJIS.get(platform.upper(), "📱")
+            # Get platform emoji with text
+            platform_emoji = PLATFORM_EMOJIS.get(platform.upper(), "📱OT")
             
-            # Clean number
+            # Clean number - mask it
             number_str = re.sub(r'\D', '', str(number))
             if len(number_str) >= 8:
                 formatted_number = number_str[:4] + "****" + number_str[-4:]
@@ -104,17 +105,17 @@ class OTPBot:
             else:
                 formatted_number = number_str
             
-            # Clean message - exactly as shown
+            # Exact format you want - NO extra spaces
             message = (
                 "╭────────────────────╮\n"
                 f"│ {country_flag} {country_code} {platform_emoji} {formatted_number} │\n"
                 "╰────────────────────╯"
             )
             
-            # Keyboard
+            # Keyboard with copy feature
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": f"{otp}", "copy_text": {"text": otp}}],
+                    [{"text": f"📋 {otp}", "copy_text": {"text": otp}}],
                     [
                         {"text": "🔢 Number Bot", "url": "https://t.me/Updateotpnew_bot"},
                         {"text": "📢 Main Channel", "url": "https://t.me/updaterange"}
@@ -224,7 +225,6 @@ class OTPBot:
             self.solve_captcha()
             time.sleep(1)
             
-            # Try to find login button
             try:
                 login_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
                 login_btn.click()
@@ -339,7 +339,6 @@ class OTPBot:
                             
                             await asyncio.sleep(0.5)
                 
-                # Refresh every 1.5 seconds
                 self.refresh_counter += 1
                 if self.refresh_counter >= 3:
                     self.driver.refresh()
