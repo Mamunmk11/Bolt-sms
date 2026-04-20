@@ -6,7 +6,7 @@ Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
 - Only sends NEW OTPs (no duplicates on restart)
 - Supports 4-8 digit OTP codes
 - Click on OTP to copy
-- Clean box format without any extra characters
+- No box format - simple and clean
 """
 
 import os
@@ -38,13 +38,13 @@ SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
 # Platform emoji mapping
 PLATFORM_EMOJIS = {
-    "TELEGRAM": "🪁TG",
-    "WHATSAPP": "💚WS",
-    "FACEBOOK": "📘FB",
-    "INSTAGRAM": "📸IG",
-    "GMAIL": "📧GM",
-    "APPLE": "🍎AP",
-    "OTHER": "📱OT"
+    "TELEGRAM": "🪁",
+    "WHATSAPP": "💚",
+    "FACEBOOK": "📘",
+    "INSTAGRAM": "📸",
+    "GMAIL": "📧",
+    "APPLE": "🍎",
+    "OTHER": "📱"
 }
 
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
@@ -103,36 +103,24 @@ class OTPBot:
         except:
             return "🌍", "#??"
     
-    def create_box_message(self, flag, country_code, logo, number):
-        """
-        Clean box message without any extra characters
-        """
-        # Mask the number
-        number_str = re.sub(r'\D', '', str(number))
-        if len(number_str) >= 8:
-            formatted_number = number_str[:4] + "****" + number_str[-4:]
-        elif len(number_str) >= 4:
-            formatted_number = number_str[:2] + "***" + number_str[-2:]
-        else:
-            formatted_number = number_str
-        
-        # Create clean box
-        box = (
-            f"╭────────────────────╮\n"
-            f"│ {flag} {country_code} {logo} {formatted_number} │\n"
-            f"╰────────────────────╯"
-        )
-        return box
-    
     def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram group - clean format with copy feature"""
+        """Send OTP to Telegram - no box, simple format"""
         try:
-            platform_emoji = PLATFORM_EMOJIS.get(platform.upper(), "📱OT")
+            platform_emoji = PLATFORM_EMOJIS.get(platform.upper(), "📱")
             
-            # Create clean box message
-            message = self.create_box_message(country_flag, country_code, platform_emoji, number)
+            # Mask the number
+            number_str = re.sub(r'\D', '', str(number))
+            if len(number_str) >= 8:
+                formatted_number = number_str[:4] + "****" + number_str[-4:]
+            elif len(number_str) >= 4:
+                formatted_number = number_str[:2] + "***" + number_str[-2:]
+            else:
+                formatted_number = number_str
             
-            # Keyboard with copy feature - OTP ক্লিক করলেই কপি হবে
+            # Simple message - NO BOX, just plain text
+            message = f"{country_flag} {country_code} {platform_emoji} {formatted_number}"
+            
+            # Keyboard with copy feature
             keyboard = {
                 "inline_keyboard": [
                     [
@@ -509,6 +497,7 @@ class OTPBot:
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
         print(f"OTP Support: 4-8 digits")
+        print(f"Format: No box - simple text")
         print(f"Feature: Click on 📋 OTP to copy")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
