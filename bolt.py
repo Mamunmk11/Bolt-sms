@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-SMS - সম্পূর্ণ অটোমেটিক OTP মনিটর বট (Railway উপযোগী)
+SMS - সম্পূর্ণ অটোমেটিক OTP মনিটর বট (ডায়নামিক CAPTCHA সলভ সহ)
+- যেকোনো গাণিতিক ক্যাপচা অটো সলভ করে (যোগ/বিয়োগ/গুণ)
 - 0.5 সেকেন্ড পরপর OTP চেক করে
 - প্রতি 1.5 সেকেন্ড পরপর ব্রাউজার রিফ্রেশ করে
-- চালু হওয়ার সাথে সাথে আজকের সব OTP ফরওয়ার্ড করে
-- ডুপ্লিকেট OTP এড়ায়
-- একাধিক দেশ সাপোর্ট (BD, ZW, IN, US, UK, PK, NP, LK, MY, SG, AE, SA সহ ৫০+ দেশ)
+- জিম্বাবুয়ে সহ ৫০+ দেশ সাপোর্ট
 """
 
 import os
@@ -14,7 +13,6 @@ import time
 import json
 import logging
 import re
-import asyncio
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -22,7 +20,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from telegram import Bot
 
 # ========== কনফিগারেশন ==========
@@ -34,16 +32,9 @@ BASE_URL = "http://93.190.143.35"
 LOGIN_URL = f"{BASE_URL}/ints/Login"
 SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
-# অপশনাল: ক্রোম ড্রাইভার পাথ
 CHROME_DRIVER_PATH = None
-
-# সেন্ড মেসেজের ফরম্যাট সেটিংস
-MESSAGE_FORMAT = "box"  # "box" অথবা "simple"
-
-# ডুপ্লিকেট চেকের জন্য ফাইল
+MESSAGE_FORMAT = "box"
 SEEN_OTPS_FILE = "seen_otps.json"
-
-# Railway এ headless mode চালানোর জন্য চেক
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
 
 # ========== কান্ট্রি কনফিগারেশন ==========
@@ -110,7 +101,6 @@ COUNTRIES = {
 
 DEFAULT_COUNTRY = "BD"
 
-# কান্ট্রি কোড ম্যাপিং
 COUNTRY_CODES = {
     "+880": "BD", "+263": "ZW", "+91": "IN", "+1": "US", "+44": "UK",
     "+92": "PK", "+977": "NP", "+94": "LK", "+60": "MY", "+65": "SG",
@@ -136,6 +126,97 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# ========== ক্যাপচা সলভার ==========
+class CaptchaSolver:
+    @staticmethod
+    def solve_math_captcha(captcha_text):
+        """
+        গাণিতিক ক্যাপচা সলভ করে
+        যেমন: "What is 10 + 0 = ?" -> 10
+              "5 + 3 = ?" -> 8
+              "12 - 4 = ?" -> 8
+              "Solve: 7 * 2" -> 14
+        """
+        # ক্যাপচা টেক্সট ক্লিন করা
+        text = captcha_text.lower()
+        text = text.replace("what is", "").replace("solve:", "").replace("=?", "").replace("?", "").strip()
+        
+        # গাণিতিক অপারেশন খোঁজা
+        patterns = [
+            r'(\d+)\s*\+\s*(\d+)',      # যোগ: 10 + 0
+            r'(\d+)\s*-\s*(\d+)',       # বিয়োগ: 12 - 4
+            r'(\d+)\s*\*\s*(\d+)',      # গুণ: 7 * 2
+            r'(\d+)\s*/\s*(\d+)',       # ভাগ: 10 / 2
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                num1 = int(match.group(1))
+                num2 = int(match.group(2))
+                
+                if '+' in text:
+                    result = num1 + num2
+                    logger.info(f"ক্যাপচা সলভ: {num1} + {num2} = {result}")
+                    return str(result)
+                elif '-' in text:
+                    result = num1 - num2
+                    logger.info(f"ক্যাপচা সলভ: {num1} - {num2} = {result}")
+                    return str(result)
+                elif '*' in text:
+                    result = num1 * num2
+                    logger.info(f"ক্যাপচা সলভ: {num1} * {num2} = {result}")
+                    return str(result)
+                elif '/' in text:
+                    result = num1 // num2
+                    logger.info(f"ক্যাপচা সলভ: {num1} / {num2} = {result}")
+                    return str(result)
+        
+        # যদি কোনো প্যাটার্ন না মেলে
+        logger.warning(f"ক্যাপচা সলভ করতে পারিনি: {captcha_text}")
+        return None
+    
+    @staticmethod
+    def extract_captcha_question(driver, wait):
+        """পেজ থেকে ক্যাপচা প্রশ্ন খুঁজে বের করে"""
+        captcha_selectors = [
+            (By.XPATH, "//label[contains(text(), '?')]"),
+            (By.XPATH, "//label[contains(text(), 'What is')]"),
+            (By.XPATH, "//label[contains(text(), 'Solve')]"),
+            (By.XPATH, "//span[contains(text(), '?')]"),
+            (By.XPATH, "//div[contains(text(), '?')]"),
+            (By.XPATH, "//label[contains(@class, 'captcha')]"),
+            (By.XPATH, "//*[contains(text(), '+') and contains(text(), '=')]"),
+            (By.XPATH, "//*[contains(text(), '-') and contains(text(), '=')]"),
+        ]
+        
+        for by, selector in captcha_selectors:
+            try:
+                element = driver.find_element(by, selector)
+                text = element.text
+                if text and ('?' in text or '+' in text or '-' in text):
+                    logger.info(f"ক্যাপচা প্রশ্ন পাওয়া গেছে: {text}")
+                    return text
+            except:
+                continue
+        
+        # পুরো পেজ টেক্সট চেক
+        page_text = driver.page_source
+        patterns = [
+            r'What is (\d+\s*[+\-*/]\s*\d+)[\s?=]*',
+            r'Solve:\s*(\d+\s*[+\-*/]\s*\d+)',
+            r'(\d+\s*\+\s*\d+)\s*=?\s*\?',
+            r'(\d+\s*-\s*\d+)\s*=?\s*\?',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, page_text, re.IGNORECASE)
+            if match:
+                logger.info(f"ক্যাপচা প্রশ্ন পাওয়া গেছে (HTML থেকে): {match.group(1)}")
+                return match.group(1)
+        
+        return None
 
 # ========== ডুপ্লিকেট ম্যানেজার ==========
 class DuplicateManager:
@@ -165,7 +246,7 @@ class DuplicateManager:
 class MessageFormatter:
     @staticmethod
     def format_otp_message(otp_code, country_code="BD", phone_number=None):
-        """OTP মেসেজ সুন্দর করে ফরম্যাট করে"""
+        """OTP মেসেজ সুন্দর করে ফরম্যাট করে - আপনার দেখানো স্টাইলে"""
         country_info = COUNTRIES.get(country_code, COUNTRIES[DEFAULT_COUNTRY])
         flag = country_info["flag"]
         logo = country_info["logo"]
@@ -193,7 +274,6 @@ class TelegramBot:
         self.chat_id = chat_id
     
     def send_message(self, text, parse_mode="HTML"):
-        """সিঙ্ক্রোনাসভাবে মেসেজ পাঠায়"""
         try:
             self.bot.send_message(
                 chat_id=self.chat_id,
@@ -214,7 +294,6 @@ class BrowserManager:
         self.wait = None
     
     def setup_driver(self):
-        """সেলেনিয়াম ড্রাইভার সেটআপ করে"""
         chrome_options = Options()
         
         if self.headless or IS_RAILWAY:
@@ -241,13 +320,12 @@ class BrowserManager:
             self.wait = WebDriverWait(self.driver, 15)
             logger.info("ব্রাউজার সফলভাবে সেটআপ হয়েছে")
             return True
-            
         except Exception as e:
             logger.error(f"ব্রাউজার সেটআপ করতে ব্যর্থ: {e}")
             return False
     
-    def login(self):
-        """ওয়েবসাইটে লগইন করে - একাধিক সিলেক্টর সাপোর্ট সহ"""
+    def solve_captcha_and_login(self):
+        """ক্যাপচা সলভ করে লগইন করে"""
         try:
             logger.info("লগইন পেজে নেওয়া হচ্ছে...")
             self.driver.get(LOGIN_URL)
@@ -255,30 +333,19 @@ class BrowserManager:
             
             logger.info(f"পেজ টাইটেল: {self.driver.title}")
             
-            # ডিবাগিং: পেজের সোর্স সেভ করা
-            try:
-                with open("login_page_debug.html", "w", encoding="utf-8") as f:
-                    f.write(self.driver.page_source[:5000])
-                logger.info("পেজ সোর্স 'login_page_debug.html' এ সেভ করা হয়েছে")
-            except:
-                pass
-            
-            # ===== ইউজারনেম ফিল্ড =====
+            # ইউজারনাম
             username_selectors = [
-                (By.NAME, "username"),
-                (By.ID, "username"),
+                (By.NAME, "username"), (By.ID, "username"),
                 (By.CSS_SELECTOR, "input[name='username']"),
-                (By.CSS_SELECTOR, "input[type='text']"),
-                (By.XPATH, "//input[@name='username']"),
-                (By.XPATH, "//input[contains(@placeholder, 'username')]"),
-                (By.XPATH, "//input[contains(@placeholder, 'Username')]"),
+                (By.XPATH, "//input[@placeholder='Enter your Username']"),
+                (By.XPATH, "//input[@placeholder='Username']"),
             ]
             
             username_field = None
             for by, selector in username_selectors:
                 try:
                     username_field = self.wait.until(EC.presence_of_element_located((by, selector)))
-                    logger.info(f"✅ ইউজারনেম ফিল্ড পাওয়া গেছে: {selector}")
+                    logger.info(f"✅ ইউজারনেম ফিল্ড পাওয়া গেছে")
                     break
                 except:
                     continue
@@ -293,22 +360,20 @@ class BrowserManager:
             
             time.sleep(1)
             
-            # ===== পাসওয়ার্ড ফিল্ড =====
+            # পাসওয়ার্ড
             password_selectors = [
-                (By.NAME, "password"),
-                (By.ID, "password"),
+                (By.NAME, "password"), (By.ID, "password"),
                 (By.CSS_SELECTOR, "input[name='password']"),
                 (By.CSS_SELECTOR, "input[type='password']"),
-                (By.XPATH, "//input[@name='password']"),
-                (By.XPATH, "//input[contains(@placeholder, 'password')]"),
-                (By.XPATH, "//input[contains(@placeholder, 'Password')]"),
+                (By.XPATH, "//input[@placeholder='Enter your Password']"),
+                (By.XPATH, "//input[@placeholder='Password']"),
             ]
             
             password_field = None
             for by, selector in password_selectors:
                 try:
                     password_field = self.driver.find_element(by, selector)
-                    logger.info(f"✅ পাসওয়ার্ড ফিল্ড পাওয়া গেছে: {selector}")
+                    logger.info(f"✅ পাসওয়ার্ড ফিল্ড পাওয়া গেছে")
                     break
                 except:
                     continue
@@ -323,28 +388,59 @@ class BrowserManager:
             
             time.sleep(1)
             
-            # ===== লগইন বাটন =====
+            # ===== ক্যাপচা সলভ করা =====
+            captcha_question = CaptchaSolver.extract_captcha_question(self.driver, self.wait)
+            
+            if captcha_question:
+                captcha_answer = CaptchaSolver.solve_math_captcha(captcha_question)
+                
+                if captcha_answer:
+                    # ক্যাপচা ইনপুট ফিল্ড খোঁজা
+                    captcha_selectors = [
+                        (By.NAME, "captcha"), (By.ID, "captcha"),
+                        (By.CSS_SELECTOR, "input[name='captcha']"),
+                        (By.XPATH, "//input[@placeholder='Answer']"),
+                        (By.XPATH, "//input[@placeholder='Enter answer']"),
+                        (By.XPATH, "//label[contains(text(), '?')]/following::input[1]"),
+                    ]
+                    
+                    captcha_field = None
+                    for by, selector in captcha_selectors:
+                        try:
+                            captcha_field = self.driver.find_element(by, selector)
+                            logger.info(f"✅ ক্যাপচা ফিল্ড পাওয়া গেছে")
+                            break
+                        except:
+                            continue
+                    
+                    if captcha_field:
+                        captcha_field.clear()
+                        captcha_field.send_keys(captcha_answer)
+                        logger.info(f"ক্যাপচা উত্তর ইনপুট করা হয়েছে: {captcha_answer}")
+                    else:
+                        logger.error("❌ ক্যাপচা ফিল্ড খুঁজে পাওয়া যায়নি!")
+                else:
+                    logger.error("❌ ক্যাপচা সলভ করতে পারিনি!")
+            else:
+                logger.warning("⚠️ কোনো ক্যাপচা প্রশ্ন পাওয়া যায়নি!")
+            
+            time.sleep(1)
+            
+            # লগইন বাটন
             button_selectors = [
                 (By.XPATH, "//button[@type='submit']"),
+                (By.XPATH, "//button[contains(text(), 'Sign In')]"),
                 (By.XPATH, "//button[contains(text(), 'Login')]"),
-                (By.XPATH, "//button[contains(text(), 'Sign in')]"),
-                (By.XPATH, "//button[contains(text(), 'Sign')]"),
-                (By.XPATH, "//button[contains(text(), 'Log in')]"),
                 (By.XPATH, "//input[@type='submit']"),
                 (By.CSS_SELECTOR, "button[type='submit']"),
-                (By.CSS_SELECTOR, "input[type='submit']"),
-                (By.XPATH, "//button[contains(@class, 'login')]"),
                 (By.XPATH, "//button[contains(@class, 'btn')]"),
-                (By.XPATH, "//button[contains(@class, 'submit')]"),
-                (By.XPATH, "//form//button"),
-                (By.XPATH, "//form//input[@type='submit']"),
             ]
             
             login_button = None
             for by, selector in button_selectors:
                 try:
                     login_button = self.driver.find_element(by, selector)
-                    logger.info(f"✅ লগইন বাটন পাওয়া গেছে: {selector}")
+                    logger.info(f"✅ লগইন বাটন পাওয়া গেছে")
                     break
                 except:
                     continue
@@ -354,12 +450,6 @@ class BrowserManager:
                 logger.info("লগইন বাটনে ক্লিক করা হয়েছে")
             else:
                 logger.error("❌ লগইন বাটন খুঁজে পাওয়া যায়নি!")
-                # ডিবাগিং: পেজের ফর্ম এলিমেন্ট দেখানো
-                logger.info("পেজের সব বাটন খুঁজে দেখা যাচ্ছে...")
-                buttons = self.driver.find_elements(By.TAG_NAME, "button")
-                logger.info(f"পাওয়া বাটন সংখ্যা: {len(buttons)}")
-                for i, btn in enumerate(buttons[:5]):
-                    logger.info(f"বাটন {i}: text='{btn.text}', type='{btn.get_attribute('type')}'")
                 return False
             
             time.sleep(5)
@@ -370,11 +460,7 @@ class BrowserManager:
                 logger.info("✅ লগইন সফল হয়েছে!")
                 return True
             else:
-                logger.error(f"❌ লগইন ব্যর্থ হয়েছে! বর্তমান URL: {current_url}")
-                # পেজে এরর মেসেজ আছে কিনা চেক
-                page_text = self.driver.page_source.lower()
-                if "invalid" in page_text or "error" in page_text:
-                    logger.error("লগইন পেজে এরর মেসেজ পাওয়া গেছে!")
+                logger.error(f"❌ লগইন ব্যর্থ হয়েছে! URL: {current_url}")
                 return False
                 
         except Exception as e:
@@ -382,7 +468,6 @@ class BrowserManager:
             return False
     
     def get_page(self, url):
-        """পৃষ্ঠা লোড করে"""
         try:
             self.driver.get(url)
             logger.info(f"পৃষ্ঠা লোড হয়েছে: {url}")
@@ -392,7 +477,6 @@ class BrowserManager:
             return False
     
     def refresh_page(self):
-        """পৃষ্ঠা রিফ্রেশ করে"""
         try:
             self.driver.refresh()
             logger.info("পৃষ্ঠা রিফ্রেশ করা হয়েছে")
@@ -402,23 +486,17 @@ class BrowserManager:
             return False
     
     def extract_otps_with_numbers(self):
-        """পৃষ্ঠা থেকে সব OTP এবং ফোন নম্বর এক্সট্রাক্ট করে"""
         otp_data = []
         try:
             page_text = self.driver.page_source
             
-            # OTP প্যাটার্ন
             patterns = [
                 r'\b\d{4}\b', r'\b\d{5}\b', r'\b\d{6}\b',
                 r'OTP[:\s]*(\d+)', r'code[:\s]*(\d+)',
                 r'verification[:\s]*(\d+)', r'Your OTP is (\d+)',
-                r'(\d{6}) is your OTP'
             ]
             
-            # ফোন নম্বর প্যাটার্ন
-            phone_patterns = [
-                r'\+?\d{10,15}', r'\b01\d{9}\b', r'\b0\d{10}\b'
-            ]
+            phone_patterns = [r'\+?\d{10,15}', r'\b01\d{9}\b']
             
             all_otps = set()
             for pattern in patterns:
@@ -445,23 +523,16 @@ class BrowserManager:
                                 break
                         break
                 
-                otp_data.append({
-                    "otp": otp,
-                    "phone": detected_phone,
-                    "country": detected_country
-                })
+                otp_data.append({"otp": otp, "phone": detected_phone, "country": detected_country})
             
             if otp_data:
                 logger.info(f"{len(otp_data)} টি OTP পাওয়া গেছে")
-            
             return otp_data
-            
         except Exception as e:
             logger.error(f"OTP এক্সট্রাক্ট করতে ব্যর্থ: {e}")
             return []
     
     def close(self):
-        """ব্রাউজার বন্ধ করে"""
         if self.driver:
             self.driver.quit()
             logger.info("ব্রাউজার বন্ধ করা হয়েছে")
@@ -478,93 +549,63 @@ class OTPSMSMonitor:
         self.processed_otps = set()
     
     def send_telegram_message(self, text):
-        """টেলিগ্রাম মেসেজ পাঠায়"""
         return self.telegram.send_message(text)
     
     def format_and_send_otp(self, otp_data):
-        """OTP ফরম্যাট করে পাঠায়"""
         otp = otp_data["otp"]
         country = otp_data.get("country", DEFAULT_COUNTRY)
         phone = otp_data.get("phone")
         
         if self.duplicate_manager.is_duplicate(otp):
-            logger.debug(f"ডুপ্লিকেট OTP স্কিপ: {otp}")
             return False
         
-        message = self.formatter.format_otp_message(
-            otp_code=otp,
-            country_code=country,
-            phone_number=phone
-        )
-        
+        message = self.formatter.format_otp_message(otp, country, phone)
         self.send_telegram_message(message)
         logger.info(f"✨ নতুন OTP পাঠানো হয়েছে: {otp} (কান্ট্রি: {country})")
         return True
     
     def send_all_todays_otps(self):
-        """আজকের সব OTP একসাথে পাঠায়"""
         logger.info("আজকের সব OTP সংগ্রহ করা হচ্ছে...")
-        
         otp_data_list = self.browser.extract_otps_with_numbers()
         
         if not otp_data_list:
             logger.info("কোনো OTP পাওয়া যায়নি")
             return
         
-        new_otps = []
         for otp_data in otp_data_list:
             if not self.duplicate_manager.is_duplicate(otp_data["otp"]):
-                new_otps.append(otp_data)
-        
-        if new_otps:
-            logger.info(f"{len(new_otps)} টি নতুন OTP পাওয়া গেছে")
-            for otp_data in new_otps:
                 self.format_and_send_otp(otp_data)
-        else:
-            logger.info("সব OTP ই আগে দেখা হয়েছে")
     
     def monitor_loop(self):
-        """মূল মনিটরিং লুপ"""
         logger.info("🚀 OTP মনিটরিং শুরু হচ্ছে...")
         
-        # ব্রাউজার সেটআপ
         if not self.browser.setup_driver():
-            logger.error("❌ ব্রাউজার সেটআপ ব্যর্থ, প্রোগ্রাম বন্ধ হচ্ছে")
+            logger.error("❌ ব্রাউজার সেটআপ ব্যর্থ")
             return
         
-        # লগইন
-        if not self.browser.login():
-            logger.error("❌ লগইন ব্যর্থ, প্রোগ্রাম বন্ধ হচ্ছে")
+        if not self.browser.solve_captcha_and_login():
+            logger.error("❌ লগইন ব্যর্থ")
             self.browser.close()
             return
         
-        # SMS পেজে যাও
         if not self.browser.get_page(SMS_PAGE_URL):
             logger.error("❌ SMS পেজ লোড করতে ব্যর্থ")
             self.browser.close()
             return
         
         time.sleep(3)
-        
-        # স্টার্টআপে সব OTP পাঠায়
         self.send_all_todays_otps()
-        
-        # স্টার্টআপ মেসেজ
         self.send_telegram_message("✅ এসএমএস মনিটর বট চালু হয়েছে! 🇿🇼 জিম্বাবুয়ে সহ ৫০+ দেশের OTP মনিটর করা হবে।")
         
-        # মনিটরিং লুপ
         loop_count = 0
         while self.running:
             try:
-                # প্রতি 1.5 সেকেন্ড পরপর রিফ্রেশ
                 if (datetime.now() - self.last_refresh).total_seconds() >= 1.5:
                     self.browser.refresh_page()
                     self.last_refresh = datetime.now()
                     time.sleep(0.5)
                 
-                # OTP চেক
                 otp_data_list = self.browser.extract_otps_with_numbers()
-                
                 for otp_data in otp_data_list:
                     if otp_data["otp"] not in self.processed_otps:
                         self.processed_otps.add(otp_data["otp"])
@@ -575,30 +616,26 @@ class OTPSMSMonitor:
                     logger.info(f"⏳ মনিটরিং চলছে... ({loop_count} সাইকেল)")
                 
                 time.sleep(0.5)
-                
             except KeyboardInterrupt:
-                logger.info("🛑 ব্যবহারকারী দ্বারা বন্ধ করা হয়েছে")
                 break
             except Exception as e:
-                logger.error(f"❌ মনিটরিং লুপে এরর: {e}")
+                logger.error(f"❌ এরর: {e}")
                 time.sleep(2)
         
         self.browser.close()
-        logger.info("🔚 OTP মনিটরিং বন্ধ হয়েছে")
+        logger.info("🔚 বন্ধ হয়েছে")
 
-# ========== মেইন ফাংশন ==========
+# ========== মেইন ==========
 def main():
     print("""
     ╔══════════════════════════════════════════════════════════╗
-    ║           SMS - OTP Monitor Bot (Multi-Country)          ║
+    ║      SMS - OTP Monitor Bot (CAPTCHA Solver + Multi-Country) ║
     ║     জিম্বাবুয়ে সহ ৫০+ দেশের OTP মনিটর                   ║
-    ║     সম্পূর্ণ অটোমেটিক OTP ফরওয়ার্ডিং সিস্টেম            ║
+    ║     ডায়নামিক ক্যাপচা সলভার যুক্ত                       ║
     ╚══════════════════════════════════════════════════════════╝
     """)
     
     logger.info("বট স্টার্ট হচ্ছে...")
-    logger.info(f"সাপোর্টেড কান্ট্রি: {len(COUNTRIES)} টি")
-    
     monitor = OTPSMSMonitor()
     
     try:
