@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
 Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
+- Checks OTP every 0.5 seconds
+- Refreshes browser every 1.5 seconds
+- Only sends NEW OTPs (no duplicates on restart)
+- Supports 4-8 digit OTP codes
 """
 
 import os
@@ -92,15 +96,16 @@ class OTPBot:
             
             message = (
                 f"╭────────────────────╮\n"
-                f"│ {country_flag} {country_code} {platform_logo} {number} │\n"
+                f"│ {country_flag} {country_code} {platform_logo} <code>{number}</code> │\n"
                 f"╰────────────────────╯"
             )
             
+            # Buttons with your links
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(text=f"📋 {otp}", callback_data=f"copy_{otp}")],
+                [InlineKeyboardButton(text=f"📋 {otp}", copy_text=otp)],
                 [
-                    InlineKeyboardButton(text="🚀 Number Panel", url="https://t.me/RTX_Number_Bot"),
-                    InlineKeyboardButton(text="⚙️ Main Channel", url="https://t.me/TR_TECH_ZONE")
+                    InlineKeyboardButton(text="🔢 Number Bot", url="https://t.me/Updateotpnew_bot"),
+                    InlineKeyboardButton(text="📢 Main Channel", url="https://t.me/updaterange")
                 ]
             ])
             
@@ -158,7 +163,6 @@ class OTPBot:
     
     def solve_captcha(self):
         try:
-            # Try different selectors for captcha
             captcha_text = None
             try:
                 captcha_text = self.driver.find_element(By.XPATH, "//div[contains(text(), 'What is')]").text
@@ -193,9 +197,8 @@ class OTPBot:
             logger.info("Logging in...")
             
             self.driver.get(LOGIN_URL)
-            time.sleep(5)  # Wait longer for page to load
+            time.sleep(5)
             
-            # Wait for username field
             username_field = WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.NAME, "username"))
             )
@@ -203,23 +206,18 @@ class OTPBot:
             username_field.send_keys(USERNAME)
             logger.info(f"Username: {USERNAME}")
             
-            # Password field
             password_field = self.driver.find_element(By.NAME, "password")
             password_field.clear()
             password_field.send_keys(PASSWORD)
             logger.info("Password entered")
             
             time.sleep(2)
-            
-            # Solve captcha
             self.solve_captcha()
-            
             time.sleep(1)
             
-            # Try multiple ways to find and click login button
             login_clicked = False
             
-            # Method 1: Try button with type submit
+            # Try different ways to find login button
             try:
                 login_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
                 login_btn.click()
@@ -228,7 +226,6 @@ class OTPBot:
             except:
                 pass
             
-            # Method 2: Try input with type submit
             if not login_clicked:
                 try:
                     login_btn = self.driver.find_element(By.XPATH, "//input[@type='submit']")
@@ -238,7 +235,6 @@ class OTPBot:
                 except:
                     pass
             
-            # Method 3: Try any button with Login/Sign In text
             if not login_clicked:
                 try:
                     login_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Login') or contains(text(), 'Sign In')]")
@@ -248,7 +244,6 @@ class OTPBot:
                 except:
                     pass
             
-            # Method 4: Try by class name
             if not login_clicked:
                 try:
                     login_btn = self.driver.find_element(By.CLASS_NAME, "btn-primary")
@@ -258,7 +253,6 @@ class OTPBot:
                 except:
                     pass
             
-            # Method 5: Submit the form directly
             if not login_clicked:
                 try:
                     form = self.driver.find_element(By.TAG_NAME, "form")
@@ -272,18 +266,15 @@ class OTPBot:
                 logger.error("Could not find login button!")
                 return False
             
-            # Wait for login to complete
             time.sleep(8)
             
             current_url = self.driver.current_url
             logger.info(f"URL after login: {current_url}")
             
-            # Check if login successful
             if 'agent' in current_url or 'Dashboard' in current_url or 'SMS' in current_url:
                 logger.info("LOGIN SUCCESSFUL!")
                 self.logged_in = True
                 
-                # Go to SMS page
                 self.driver.get(SMS_PAGE_URL)
                 time.sleep(8)
                 logger.info("SMS page loaded")
@@ -343,7 +334,6 @@ class OTPBot:
     
     def get_sms(self):
         try:
-            # Wait for table to load
             time.sleep(1)
             
             rows = self.driver.find_elements(By.XPATH, "//table/tbody/tr")
@@ -411,7 +401,6 @@ class OTPBot:
                 wait_time = max(0, 0.5 - elapsed)
                 await asyncio.sleep(wait_time)
                 
-                # Refresh browser every 1.5 seconds
                 self.refresh_counter += 1
                 if self.refresh_counter >= 3:
                     self.driver.refresh()
