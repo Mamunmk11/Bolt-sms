@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Bolt SMS - সম্পূর্ণ অটোমেটিক OTP মনিটর বট (Railway উপযোগী)
+SMS - সম্পূর্ণ অটোমেটিক OTP মনিটর বট (Railway উপযোগী)
 - 0.5 সেকেন্ড পরপর OTP চেক করে
 - প্রতি 1.5 সেকেন্ড পরপর ব্রাউজার রিফ্রেশ করে
 - চালু হওয়ার সাথে সাথে আজকের সব OTP ফরওয়ার্ড করে
 - ডুপ্লিকেট OTP এড়ায়
+- একাধিক দেশ সাপোর্ট (BD, ZW, IN, US, UK, PK, NP, LK, MY, SG, AE, SA)
 """
 
 import os
@@ -14,6 +15,7 @@ import json
 import logging
 import re
 import asyncio
+import random
 from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -33,7 +35,7 @@ BASE_URL = "http://93.190.143.35"
 LOGIN_URL = f"{BASE_URL}/ints/Login"
 SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
-# অপশনাল: ক্রোম ড্রাইভার পাথ (Railway এ সাধারণত দরকার নেই)
+# অপশনাল: ক্রোম ড্রাইভার পাথ
 CHROME_DRIVER_PATH = None
 
 # সেন্ড মেসেজের ফরম্যাট সেটিংস
@@ -45,6 +47,71 @@ SEEN_OTPS_FILE = "seen_otps.json"
 # Railway এ headless mode চালানোর জন্য চেক
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
 
+# ========== কান্ট্রি কনফিগারেশন ==========
+COUNTRIES = {
+    "BD": {"flag": "🇧🇩", "name": "Bangladesh", "code": "+880", "logo": "📱"},
+    "ZW": {"flag": "🇿🇼", "name": "Zimbabwe", "code": "+263", "logo": "📱"},
+    "IN": {"flag": "🇮🇳", "name": "India", "code": "+91", "logo": "📱"},
+    "US": {"flag": "🇺🇸", "name": "USA", "code": "+1", "logo": "📱"},
+    "UK": {"flag": "🇬🇧", "name": "United Kingdom", "code": "+44", "logo": "📱"},
+    "PK": {"flag": "🇵🇰", "name": "Pakistan", "code": "+92", "logo": "📱"},
+    "NP": {"flag": "🇳🇵", "name": "Nepal", "code": "+977", "logo": "📱"},
+    "LK": {"flag": "🇱🇰", "name": "Sri Lanka", "code": "+94", "logo": "📱"},
+    "MY": {"flag": "🇲🇾", "name": "Malaysia", "code": "+60", "logo": "📱"},
+    "SG": {"flag": "🇸🇬", "name": "Singapore", "code": "+65", "logo": "📱"},
+    "AE": {"flag": "🇦🇪", "name": "UAE", "code": "+971", "logo": "📱"},
+    "SA": {"flag": "🇸🇦", "name": "Saudi Arabia", "code": "+966", "logo": "📱"},
+    "CA": {"flag": "🇨🇦", "name": "Canada", "code": "+1", "logo": "📱"},
+    "AU": {"flag": "🇦🇺", "name": "Australia", "code": "+61", "logo": "📱"},
+    "DE": {"flag": "🇩🇪", "name": "Germany", "code": "+49", "logo": "📱"},
+    "FR": {"flag": "🇫🇷", "name": "France", "code": "+33", "logo": "📱"},
+    "IT": {"flag": "🇮🇹", "name": "Italy", "code": "+39", "logo": "📱"},
+    "ES": {"flag": "🇪🇸", "name": "Spain", "code": "+34", "logo": "📱"},
+    "PT": {"flag": "🇵🇹", "name": "Portugal", "code": "+351", "logo": "📱"},
+    "NL": {"flag": "🇳🇱", "name": "Netherlands", "code": "+31", "logo": "📱"},
+    "BE": {"flag": "🇧🇪", "name": "Belgium", "code": "+32", "logo": "📱"},
+    "CH": {"flag": "🇨🇭", "name": "Switzerland", "code": "+41", "logo": "📱"},
+    "SE": {"flag": "🇸🇪", "name": "Sweden", "code": "+46", "logo": "📱"},
+    "NO": {"flag": "🇳🇴", "name": "Norway", "code": "+47", "logo": "📱"},
+    "DK": {"flag": "🇩🇰", "name": "Denmark", "code": "+45", "logo": "📱"},
+    "FI": {"flag": "🇫🇮", "name": "Finland", "code": "+358", "logo": "📱"},
+    "PL": {"flag": "🇵🇱", "name": "Poland", "code": "+48", "logo": "📱"},
+    "RU": {"flag": "🇷🇺", "name": "Russia", "code": "+7", "logo": "📱"},
+    "CN": {"flag": "🇨🇳", "name": "China", "code": "+86", "logo": "📱"},
+    "JP": {"flag": "🇯🇵", "name": "Japan", "code": "+81", "logo": "📱"},
+    "KR": {"flag": "🇰🇷", "name": "South Korea", "code": "+82", "logo": "📱"},
+    "ID": {"flag": "🇮🇩", "name": "Indonesia", "code": "+62", "logo": "📱"},
+    "PH": {"flag": "🇵🇭", "name": "Philippines", "code": "+63", "logo": "📱"},
+    "VN": {"flag": "🇻🇳", "name": "Vietnam", "code": "+84", "logo": "📱"},
+    "TH": {"flag": "🇹🇭", "name": "Thailand", "code": "+66", "logo": "📱"},
+    "EG": {"flag": "🇪🇬", "name": "Egypt", "code": "+20", "logo": "📱"},
+    "NG": {"flag": "🇳🇬", "name": "Nigeria", "code": "+234", "logo": "📱"},
+    "ZA": {"flag": "🇿🇦", "name": "South Africa", "code": "+27", "logo": "📱"},
+    "KE": {"flag": "🇰🇪", "name": "Kenya", "code": "+254", "logo": "📱"},
+    "GH": {"flag": "🇬🇭", "name": "Ghana", "code": "+233", "logo": "📱"},
+    "BR": {"flag": "🇧🇷", "name": "Brazil", "code": "+55", "logo": "📱"},
+    "MX": {"flag": "🇲🇽", "name": "Mexico", "code": "+52", "logo": "📱"},
+    "AR": {"flag": "🇦🇷", "name": "Argentina", "code": "+54", "logo": "📱"},
+    "CO": {"flag": "🇨🇴", "name": "Colombia", "code": "+57", "logo": "📱"},
+    "CL": {"flag": "🇨🇱", "name": "Chile", "code": "+56", "logo": "📱"},
+    "PE": {"flag": "🇵🇪", "name": "Peru", "code": "+51", "logo": "📱"},
+    "TR": {"flag": "🇹🇷", "name": "Turkey", "code": "+90", "logo": "📱"},
+    "IR": {"flag": "🇮🇷", "name": "Iran", "code": "+98", "logo": "📱"},
+    "IQ": {"flag": "🇮🇶", "name": "Iraq", "code": "+964", "logo": "📱"},
+    "SY": {"flag": "🇸🇾", "name": "Syria", "code": "+963", "logo": "📱"},
+    "JO": {"flag": "🇯🇴", "name": "Jordan", "code": "+962", "logo": "📱"},
+    "LB": {"flag": "🇱🇧", "name": "Lebanon", "code": "+961", "logo": "📱"},
+    "KW": {"flag": "🇰🇼", "name": "Kuwait", "code": "+965", "logo": "📱"},
+    "QA": {"flag": "🇶🇦", "name": "Qatar", "code": "+974", "logo": "📱"},
+    "BH": {"flag": "🇧🇭", "name": "Bahrain", "code": "+973", "logo": "📱"},
+    "OM": {"flag": "🇴🇲", "name": "Oman", "code": "+968", "logo": "📱"},
+    "YE": {"flag": "🇾🇪", "name": "Yemen", "code": "+967", "logo": "📱"},
+    "AF": {"flag": "🇦🇫", "name": "Afghanistan", "code": "+93", "logo": "📱"},
+}
+
+# ডিফল্ট কান্ট্রি
+DEFAULT_COUNTRY = "BD"
+
 # ========== লগিং সেটআপ ==========
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -55,6 +122,97 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# ========== কান্ট্রি ডিটেক্টর ==========
+class CountryDetector:
+    @staticmethod
+    def detect_country_from_number(phone_number):
+        """ফোন নম্বর থেকে কান্ট্রি ডিটেক্ট করে"""
+        if not phone_number:
+            return DEFAULT_COUNTRY
+        
+        # নম্বর থেকে কোড বের করা
+        for code, country in COUNTRY_CODES.items():
+            if phone_number.startswith(code):
+                return country
+        return DEFAULT_COUNTRY
+    
+    @staticmethod
+    def detect_country_from_text(text):
+        """টেক্সট থেকে কান্ট্রি ডিটেক্ট করে"""
+        text_lower = text.lower()
+        
+        # কান্ট্রি নাম চেক
+        for country_code, info in COUNTRIES.items():
+            if info["name"].lower() in text_lower:
+                return country_code
+        
+        # জিম্বাবুয়ের জন্য স্পেশাল চেক
+        if "zimbabwe" in text_lower or "zw" in text_lower:
+            return "ZW"
+        
+        return DEFAULT_COUNTRY
+
+# কান্ট্রি কোড ম্যাপিং (ফোন নম্বরের জন্য)
+COUNTRY_CODES = {
+    "+880": "BD",
+    "+263": "ZW",
+    "+91": "IN",
+    "+1": "US",
+    "+44": "UK",
+    "+92": "PK",
+    "+977": "NP",
+    "+94": "LK",
+    "+60": "MY",
+    "+65": "SG",
+    "+971": "AE",
+    "+966": "SA",
+    "+61": "AU",
+    "+49": "DE",
+    "+33": "FR",
+    "+39": "IT",
+    "+34": "ES",
+    "+351": "PT",
+    "+31": "NL",
+    "+32": "BE",
+    "+41": "CH",
+    "+46": "SE",
+    "+47": "NO",
+    "+45": "DK",
+    "+358": "FI",
+    "+48": "PL",
+    "+7": "RU",
+    "+86": "CN",
+    "+81": "JP",
+    "+82": "KR",
+    "+62": "ID",
+    "+63": "PH",
+    "+84": "VN",
+    "+66": "TH",
+    "+20": "EG",
+    "+234": "NG",
+    "+27": "ZA",
+    "+254": "KE",
+    "+233": "GH",
+    "+55": "BR",
+    "+52": "MX",
+    "+54": "AR",
+    "+57": "CO",
+    "+56": "CL",
+    "+51": "PE",
+    "+90": "TR",
+    "+98": "IR",
+    "+964": "IQ",
+    "+963": "SY",
+    "+962": "JO",
+    "+961": "LB",
+    "+965": "KW",
+    "+974": "QA",
+    "+973": "BH",
+    "+968": "OM",
+    "+967": "YE",
+    "+93": "AF",
+}
 
 # ========== ডুপ্লিকেট ম্যানেজার ==========
 class DuplicateManager:
@@ -79,19 +237,26 @@ class DuplicateManager:
         self.seen_otps.add(otp_text)
         self.save_seen_otps()
         return False
-    
-    def clear_old_otps(self, days=1):
-        """পুরনো OTP মুছে ফেলে (ডিফল্ট ১ দিন)"""
-        pass
 
 # ========== মেসেজ ফরম্যাটার ==========
 class MessageFormatter:
     @staticmethod
-    def format_otp_message(otp_code, sender="SMS", flag="📱", country_code="BD", logo="🔐"):
-        """OTP মেসেজ সুন্দর করে ফরম্যাট করে"""
-        formatted_num = otp_code
+    def format_otp_message(otp_code, sender="SMS", country_code="BD", phone_number=None):
+        """OTP মেসেজ সুন্দর করে ফরম্যাট করে - আপনার দেখানো স্টাইলে"""
+        
+        # কান্ট্রি ইনফো নাও
+        country_info = COUNTRIES.get(country_code, COUNTRIES[DEFAULT_COUNTRY])
+        flag = country_info["flag"]
+        logo = country_info["logo"]
+        
+        # ফোন নম্বর ফরম্যাট
+        if phone_number:
+            formatted_num = phone_number
+        else:
+            formatted_num = f"{country_info['code']}{otp_code}"
         
         if MESSAGE_FORMAT == "box":
+            # আপনার দেখানো ফরম্যাটে
             text = (
                 f"╭────────────────────╮\n"
                 f"│ {flag} #{country_code} {logo} <code>{formatted_num}</code> │\n"
@@ -103,19 +268,37 @@ class MessageFormatter:
         return text
     
     @staticmethod
-    def format_bulk_message(otp_list):
+    def format_otp_with_custom(otp_code, country_code="BD", custom_flag=None, custom_logo=None):
+        """কাস্টম ফ্ল্যাগ ও লোগো সহ OTP মেসেজ"""
+        
+        country_info = COUNTRIES.get(country_code, COUNTRIES[DEFAULT_COUNTRY])
+        flag = custom_flag if custom_flag else country_info["flag"]
+        logo = custom_logo if custom_logo else country_info["logo"]
+        
+        text = (
+            f"╭────────────────────╮\n"
+            f"│ {flag} #{country_code} {logo} <code>{otp_code}</code> │\n"
+            f"╰────────────────────╯"
+        )
+        return text
+    
+    @staticmethod
+    def format_bulk_message(otp_list, country_code="BD"):
         """একসাথে একাধিক OTP পাঠানোর জন্য"""
         if not otp_list:
             return None
         
+        country_info = COUNTRIES.get(country_code, COUNTRIES[DEFAULT_COUNTRY])
+        flag = country_info["flag"]
+        
         if MESSAGE_FORMAT == "box":
             lines = ["╭────────────────────╮"]
             for otp in otp_list[:10]:
-                lines.append(f"│ 📱 <code>{otp}</code> │")
+                lines.append(f"│ {flag} <code>{otp}</code> │")
             lines.append("╰────────────────────╯")
             return "\n".join(lines)
         else:
-            return "\n".join([f"📱 <code>{otp}</code>" for otp in otp_list[:10]])
+            return "\n".join([f"{flag} <code>{otp}</code>" for otp in otp_list[:10]])
 
 # ========== টেলিগ্রাম বট ==========
 class TelegramBot:
@@ -135,12 +318,6 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"মেসেজ পাঠাতে ব্যর্থ: {e}")
             return False
-    
-    async def send_bulk_messages(self, messages, delay=1):
-        """একাধিক মেসেজ ধীরে ধীরে পাঠায়"""
-        for msg in messages:
-            await self.send_message(msg)
-            await asyncio.sleep(delay)
     
     def sync_send_message(self, text, parse_mode="HTML"):
         """সিঙ্ক্রোনাসভাবে মেসেজ পাঠায়"""
@@ -203,21 +380,17 @@ class BrowserManager:
             self.driver.get(LOGIN_URL)
             time.sleep(2)
             
-            # ইউজারনেম ইনপুট
             username_field = self.wait.until(EC.presence_of_element_located((By.NAME, "username")))
             username_field.send_keys(USERNAME)
             
-            # পাসওয়ার্ড ইনপুট
             password_field = self.driver.find_element(By.NAME, "password")
             password_field.send_keys(PASSWORD)
             
-            # লগইন বাটন ক্লিক
             login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
             login_button.click()
             
             time.sleep(3)
             
-            # লগইন সফল হয়েছে কিনা চেক
             if "login" not in self.driver.current_url.lower():
                 logger.info("লগইন সফল হয়েছে!")
                 return True
@@ -249,13 +422,13 @@ class BrowserManager:
             logger.error(f"পৃষ্ঠা রিফ্রেশ করতে ব্যর্থ: {e}")
             return False
     
-    def extract_otps(self):
-        """পৃষ্ঠা থেকে সব OTP এক্সট্রাক্ট করে"""
-        otps = []
+    def extract_otps_with_numbers(self):
+        """পৃষ্ঠা থেকে সব OTP এবং ফোন নম্বর এক্সট্রাক্ট করে"""
+        otp_data = []
         try:
             page_text = self.driver.page_source
             
-            # বিভিন্ন প্যাটার্নে OTP খোঁজা
+            # OTP প্যাটার্ন
             patterns = [
                 r'\b\d{4}\b',
                 r'\b\d{5}\b',
@@ -267,19 +440,52 @@ class BrowserManager:
                 r'(\d{6}) is your OTP'
             ]
             
+            # ফোন নম্বর প্যাটার্ন
+            phone_patterns = [
+                r'\+?\d{10,15}',
+                r'\b01\d{9}\b',
+                r'\b0\d{10}\b'
+            ]
+            
+            all_otps = set()
             for pattern in patterns:
                 matches = re.findall(pattern, page_text, re.IGNORECASE)
-                otps.extend(matches)
+                for match in matches:
+                    if len(match) >= 4 and len(match) <= 8 and match.isdigit():
+                        all_otps.add(match)
             
-            # ডুপ্লিকেট রিমুভ
-            otps = list(set(otps))
+            # ফোন নম্বর খোঁজা
+            phones = set()
+            for pattern in phone_patterns:
+                matches = re.findall(pattern, page_text)
+                phones.update(matches)
             
-            # শুধু ডিজিট ফিল্টার (৪-৮ ডিজিট)
-            otps = [otp for otp in otps if len(otp) >= 4 and len(otp) <= 8 and otp.isdigit()]
+            # OTP ডাটা তৈরি
+            for otp in all_otps:
+                # ফোন নম্বর ডিটেক্ট করার চেষ্টা
+                detected_phone = None
+                detected_country = DEFAULT_COUNTRY
+                
+                for phone in phones:
+                    if otp in phone:
+                        detected_phone = phone
+                        # কান্ট্রি ডিটেক্ট
+                        for code, country in COUNTRY_CODES.items():
+                            if phone.startswith(code):
+                                detected_country = country
+                                break
+                        break
+                
+                otp_data.append({
+                    "otp": otp,
+                    "phone": detected_phone,
+                    "country": detected_country
+                })
             
-            if otps:
-                logger.info(f"{len(otps)} টি OTP পাওয়া গেছে: {otps}")
-            return otps
+            if otp_data:
+                logger.info(f"{len(otp_data)} টি OTP পাওয়া গেছে")
+            
+            return otp_data
             
         except Exception as e:
             logger.error(f"OTP এক্সট্রাক্ট করতে ব্যর্থ: {e}")
@@ -311,43 +517,46 @@ class OTPSMSMonitor:
             logger.error(f"টেলিগ্রামে পাঠাতে ব্যর্থ: {e}")
             return False
     
-    def format_and_send_otp(self, otp, source="SMS"):
+    def format_and_send_otp(self, otp_data):
         """OTP ফরম্যাট করে পাঠায়"""
+        otp = otp_data["otp"]
+        country = otp_data.get("country", DEFAULT_COUNTRY)
+        phone = otp_data.get("phone")
+        
         if self.duplicate_manager.is_duplicate(otp):
             logger.debug(f"ডুপ্লিকেট OTP স্কিপ: {otp}")
             return False
         
         message = self.formatter.format_otp_message(
             otp_code=otp,
-            sender=source,
-            flag="📱",
-            country_code="BD",
-            logo="🔐"
+            sender="SMS",
+            country_code=country,
+            phone_number=phone
         )
         
         self.send_telegram_message(message)
-        logger.info(f"নতুন OTP পাঠানো হয়েছে: {otp}")
+        logger.info(f"নতুন OTP পাঠানো হয়েছে: {otp} (কান্ট্রি: {country})")
         return True
     
     def send_all_todays_otps(self):
         """আজকের সব OTP একসাথে পাঠায় (স্টার্টআপে)"""
         logger.info("আজকের সব OTP সংগ্রহ করা হচ্ছে...")
         
-        otps = self.browser.extract_otps()
+        otp_data_list = self.browser.extract_otps_with_numbers()
         
-        if not otps:
+        if not otp_data_list:
             logger.info("কোনো OTP পাওয়া যায়নি")
             return
         
         new_otps = []
-        for otp in otps:
-            if not self.duplicate_manager.is_duplicate(otp):
-                new_otps.append(otp)
+        for otp_data in otp_data_list:
+            if not self.duplicate_manager.is_duplicate(otp_data["otp"]):
+                new_otps.append(otp_data)
         
         if new_otps:
             logger.info(f"{len(new_otps)} টি নতুন OTP পাওয়া গেছে")
-            for otp in new_otps:
-                self.format_and_send_otp(otp)
+            for otp_data in new_otps:
+                self.format_and_send_otp(otp_data)
         else:
             logger.info("সব OTP ই আগে দেখা হয়েছে")
     
@@ -377,6 +586,9 @@ class OTPSMSMonitor:
         # স্টার্টআপে সব OTP পাঠায়
         self.send_all_todays_otps()
         
+        # স্টার্টআপ মেসেজ
+        self.send_telegram_message("✅ এসএমএস মনিটর বট চালু হয়েছে! জিম্বাবুয়ে সহ সকল দেশের OTP মনিটর করা হবে।")
+        
         # মনিটরিং লুপ
         loop_count = 0
         while self.running:
@@ -388,12 +600,12 @@ class OTPSMSMonitor:
                     time.sleep(0.5)
                 
                 # OTP চেক
-                otps = self.browser.extract_otps()
+                otp_data_list = self.browser.extract_otps_with_numbers()
                 
-                for otp in otps:
-                    if otp not in self.processed_otps:
-                        self.processed_otps.add(otp)
-                        self.format_and_send_otp(otp)
+                for otp_data in otp_data_list:
+                    if otp_data["otp"] not in self.processed_otps:
+                        self.processed_otps.add(otp_data["otp"])
+                        self.format_and_send_otp(otp_data)
                 
                 loop_count += 1
                 if loop_count % 20 == 0:
@@ -414,13 +626,15 @@ class OTPSMSMonitor:
 # ========== মেইন ফাংশন ==========
 def main():
     print("""
-    ╔══════════════════════════════════════╗
-    ║      SMS - OTP Monitor Bot           ║
-    ║    সম্পূর্ণ অটোমেটিক OTP মনিটর      ║
-    ╚══════════════════════════════════════╝
+    ╔══════════════════════════════════════════════════════════╗
+    ║           SMS - OTP Monitor Bot (Multi-Country)          ║
+    ║     জিম্বাবুয়ে সহ ৫০+ দেশের OTP মনিটর                   ║
+    ║     সম্পূর্ণ অটোমেটিক OTP ফরওয়ার্ডিং সিস্টেম            ║
+    ╚══════════════════════════════════════════════════════════╝
     """)
     
     logger.info("বট স্টার্ট হচ্ছে...")
+    logger.info(f"সাপোর্টেড কান্ট্রি: {len(COUNTRIES)} টি")
     
     monitor = OTPSMSMonitor()
     
