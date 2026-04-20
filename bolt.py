@@ -5,8 +5,8 @@ Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
 - Refreshes browser every 1.5 seconds
 - Only sends NEW OTPs (no duplicates on restart)
 - Supports 4-8 digit OTP codes
-- Click on OTP to copy (Blue button)
-- Clean format with clickable buttons
+- Click on OTP to copy
+- Platform short codes (TG, WS, FB, etc.)
 """
 
 import os
@@ -36,15 +36,15 @@ BASE_URL = "http://93.190.143.35"
 LOGIN_URL = f"{BASE_URL}/ints/Login"
 SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
-# Platform emoji mapping
-PLATFORM_EMOJIS = {
-    "TELEGRAM": "🪁",
-    "WHATSAPP": "💚",
-    "FACEBOOK": "📘",
-    "INSTAGRAM": "📸",
-    "GMAIL": "📧",
-    "APPLE": "🍎",
-    "OTHER": "📱"
+# Platform short codes (without emoji)
+PLATFORM_CODES = {
+    "TELEGRAM": "TG",
+    "WHATSAPP": "WS",
+    "FACEBOOK": "FB",
+    "INSTAGRAM": "IG",
+    "GMAIL": "GM",
+    "APPLE": "AP",
+    "OTHER": "OT"
 }
 
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
@@ -78,7 +78,6 @@ class OTPBot:
         try:
             clean_number = re.sub(r'\D', '', str(phone_number))
             
-            # Country flags mapping
             if clean_number.startswith('263'):
                 return "🇿🇼", "#ZW"
             elif clean_number.startswith('880'):
@@ -99,25 +98,16 @@ class OTPBot:
                 return "🇸🇦", "#SA"
             elif clean_number.startswith('971'):
                 return "🇦🇪", "#AE"
-            elif clean_number.startswith('49'):
-                return "🇩🇪", "#DE"
-            elif clean_number.startswith('33'):
-                return "🇫🇷", "#FR"
-            elif clean_number.startswith('81'):
-                return "🇯🇵", "#JP"
-            elif clean_number.startswith('82'):
-                return "🇰🇷", "#KR"
-            elif clean_number.startswith('86'):
-                return "🇨🇳", "#CN"
             else:
                 return "🌍", "#??"
         except:
             return "🌍", "#??"
     
     def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram with clickable blue buttons"""
+        """Send OTP to Telegram - with platform short codes only (no emoji)"""
         try:
-            platform_emoji = PLATFORM_EMOJIS.get(platform.upper(), "📱")
+            # Get platform short code (TG, WS, FB, etc.)
+            platform_code = PLATFORM_CODES.get(platform.upper(), "OT")
             
             # Mask the number
             number_str = re.sub(r'\D', '', str(number))
@@ -128,25 +118,26 @@ class OTPBot:
             else:
                 formatted_number = number_str
             
-            # Simple message (no box, clean text)
-            message = f"{country_flag} {country_code} {platform_emoji} {formatted_number}"
+            # Simple message - flag country_code platform_code masked_number
+            # Example: 🇿🇼 #ZW TG 2637****8341
+            message = f"{country_flag} {country_code} {platform_code} {formatted_number}"
             
-            # Keyboard with clickable blue buttons
+            # Keyboard with copy feature
             keyboard = {
                 "inline_keyboard": [
                     [
                         {
-                            "text": f"📋 {otp}",
-                            "callback_data": f"copy_{otp}"
+                            "text": f"{otp}",
+                            "copy_text": {"text": otp}
                         }
                     ],
                     [
                         {
-                            "text": "🔢 Number Bot",
+                            "text": "Number Bot",
                             "url": "https://t.me/Updateotpnew_bot"
                         },
                         {
-                            "text": "📢 Main Channel",
+                            "text": "Main Channel",
                             "url": "https://t.me/updaterange"
                         }
                     ]
@@ -167,10 +158,10 @@ class OTPBot:
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ OTP sent: {otp}")
+                logger.info(f"OTP sent: {otp} for {platform}")
                 return True
             else:
-                logger.error(f"Failed to send: {response.status_code} - {response.text}")
+                logger.error(f"Failed to send: {response.status_code}")
                 return False
             
         except Exception as e:
@@ -283,7 +274,7 @@ class OTPBot:
                 login_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
                 login_btn.click()
                 login_clicked = True
-                logger.info("Login button clicked (button submit)")
+                logger.info("Login button clicked")
             except:
                 pass
             
@@ -293,37 +284,17 @@ class OTPBot:
                     login_btn = self.driver.find_element(By.XPATH, "//input[@type='submit']")
                     login_btn.click()
                     login_clicked = True
-                    logger.info("Login button clicked (input submit)")
+                    logger.info("Login button clicked")
                 except:
                     pass
             
-            # Method 3: Button with text
-            if not login_clicked:
-                try:
-                    login_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Login') or contains(text(), 'Sign In')]")
-                    login_btn.click()
-                    login_clicked = True
-                    logger.info("Login button clicked (text match)")
-                except:
-                    pass
-            
-            # Method 4: By class name
-            if not login_clicked:
-                try:
-                    login_btn = self.driver.find_element(By.CLASS_NAME, "btn-primary")
-                    login_btn.click()
-                    login_clicked = True
-                    logger.info("Login button clicked (class name)")
-                except:
-                    pass
-            
-            # Method 5: Submit form directly
+            # Method 3: Submit form directly
             if not login_clicked:
                 try:
                     form = self.driver.find_element(By.TAG_NAME, "form")
                     form.submit()
                     login_clicked = True
-                    logger.info("Form submitted directly")
+                    logger.info("Form submitted")
                 except:
                     pass
             
@@ -348,7 +319,7 @@ class OTPBot:
                 logger.info("SMS page loaded")
                 return True
             else:
-                logger.error("Login failed - wrong URL")
+                logger.error("Login failed")
                 return False
                 
         except Exception as e:
@@ -361,16 +332,16 @@ class OTPBot:
         
         if 'telegram' in message_lower:
             return "TELEGRAM"
-        elif 'facebook' in message_lower or 'fb' in message_lower:
-            return "FACEBOOK"
-        elif 'apple' in message_lower or 'icloud' in message_lower:
-            return "APPLE"
         elif 'whatsapp' in message_lower:
             return "WHATSAPP"
+        elif 'facebook' in message_lower or 'fb' in message_lower:
+            return "FACEBOOK"
         elif 'instagram' in message_lower:
             return "INSTAGRAM"
-        elif 'gmail' in message_lower:
+        elif 'gmail' in message_lower or 'google' in message_lower:
             return "GMAIL"
+        elif 'apple' in message_lower or 'icloud' in message_lower:
+            return "APPLE"
         else:
             return "OTHER"
     
@@ -397,7 +368,7 @@ class OTPBot:
         # Pattern 4: any 4-8 digit number
         numbers = re.findall(r'\b(\d{4,8})\b', message)
         for num in numbers:
-            if not num.startswith(('263', '880', '1', '44', '91', '92', '234', '20', '966', '971')):
+            if not num.startswith(('263', '880', '1', '44', '91', '92', '234')):
                 return num
         
         return None
@@ -416,7 +387,7 @@ class OTPBot:
                 cols = row.find_elements(By.TAG_NAME, "td")
                 if len(cols) >= 6:
                     message_text = cols[5].text.strip()
-                    # Skip REG-PS messages (Apple registration responses)
+                    # Skip REG-PS messages
                     if message_text.startswith('REG-PS'):
                         continue
                     
@@ -455,7 +426,7 @@ class OTPBot:
                                 platform = self.extract_platform(sms['message'], sms['client'])
                                 flag, country_code = self.get_country_flag_and_code(sms['phone'])
                                 
-                                logger.info(f"📱 NEW OTP! {otp} - {sms['phone']} - {platform}")
+                                logger.info(f"NEW OTP! {otp} - {sms['phone']} - {platform}")
                                 
                                 # Send to Telegram
                                 result = self.send_otp_to_telegram(
@@ -465,9 +436,9 @@ class OTPBot:
                                 if result:
                                     self.processed_otps.add(sms_id)
                                     self.total_otps_sent += 1
-                                    logger.info(f"✅ Total OTPs sent: {self.total_otps_sent}")
+                                    logger.info(f"Total OTPs sent: {self.total_otps_sent}")
                                 else:
-                                    logger.error(f"❌ Failed to send OTP {otp}")
+                                    logger.error(f"Failed to send OTP {otp}")
                                     
                                 await asyncio.sleep(0.5)
                 
@@ -475,7 +446,7 @@ class OTPBot:
                 wait_time = max(0, 0.5 - elapsed)
                 await asyncio.sleep(wait_time)
                 
-                # Refresh browser every 1.5 seconds (every 3 cycles)
+                # Refresh browser every 1.5 seconds
                 self.refresh_counter += 1
                 if self.refresh_counter >= 3:
                     self.driver.refresh()
@@ -507,8 +478,8 @@ class OTPBot:
         print(f"Telegram Chat: {GROUP_CHAT_ID}")
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
-        print(f"OTP Support: 4-8 digits")
-        print(f"Feature: Click on 📋 OTP button to copy (Blue button)")
+        print(f"Platform Short Codes: TG, WS, FB, IG, GM, AP, OT")
+        print(f"Feature: Click on OTP button to copy")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
         else:
@@ -532,7 +503,7 @@ class OTPBot:
         print("="*60)
         print("Checking for new OTPs every 0.5 seconds")
         print("Browser refreshing every 1.5 seconds")
-        print("Click on 📋 OTP button to copy the code")
+        print("Click on OTP button to copy the code")
         if not IS_RAILWAY:
             print("Browser window will stay open")
         print("Press Ctrl+C to stop")
