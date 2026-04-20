@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import asyncio
+import requests
 import phonenumbers
 from datetime import datetime, timedelta
 from selenium import webdriver
@@ -33,6 +34,20 @@ PASSWORD = "mamun1132"
 BASE_URL = "http://93.190.143.35"
 LOGIN_URL = f"{BASE_URL}/ints/Login"
 SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
+
+# Second bot configuration (for custom format)
+BOT_TOKEN_2 = "8639902314:AAENcAdowvvpHnU75UpLMcGRJ24yVizFMZg"
+CHAT_ID_2 = "-1003818275876"
+
+# Platform emoji mapping
+PLATFORM_EMOJIS = {
+    "WHATSAPP": {"short": "WS", "emoji_id": "5226815671261763813"},
+    "TELEGRAM": {"short": "TG", "emoji_id": "5267139126339084336"},
+    "FACEBOOK": {"short": "FB", "emoji_id": "5269492171416832604"},
+    "INSTAGRAM": {"short": "IG", "emoji_id": "5226815671261763813"},
+    "GMAIL": {"short": "GM", "emoji_id": "5226815671261763813"},
+    "OTHER": {"short": "OT", "emoji_id": "5226815671261763813"}
+}
 
 # Check for Railway environment
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
@@ -100,212 +115,41 @@ class OTPBot:
             
             # Country code to flag mapping
             country_flags = {
-                1: "🇺🇸",   # USA/Canada
-                7: "🇷🇺",   # Russia
-                20: "🇪🇬",  # Egypt
-                27: "🇿🇦",  # South Africa
-                30: "🇬🇷",  # Greece
-                31: "🇳🇱",  # Netherlands
-                32: "🇧🇪",  # Belgium
-                33: "🇫🇷",  # France
-                34: "🇪🇸",  # Spain
-                36: "🇭🇺",  # Hungary
-                39: "🇮🇹",  # Italy
-                40: "🇷🇴",  # Romania
-                41: "🇨🇭",  # Switzerland
-                43: "🇦🇹",  # Austria
-                44: "🇬🇧",  # UK
-                45: "🇩🇰",  # Denmark
-                46: "🇸🇪",  # Sweden
-                47: "🇳🇴",  # Norway
-                48: "🇵🇱",  # Poland
-                49: "🇩🇪",  # Germany
-                51: "🇵🇪",  # Peru
-                52: "🇲🇽",  # Mexico
-                53: "🇨🇺",  # Cuba
-                54: "🇦🇷",  # Argentina
-                55: "🇧🇷",  # Brazil
-                56: "🇨🇱",  # Chile
-                57: "🇨🇴",  # Colombia
-                58: "🇻🇪",  # Venezuela
-                60: "🇲🇾",  # Malaysia
-                61: "🇦🇺",  # Australia
-                62: "🇮🇩",  # Indonesia
-                63: "🇵🇭",  # Philippines
-                64: "🇳🇿",  # New Zealand
-                65: "🇸🇬",  # Singapore
-                66: "🇹🇭",  # Thailand
-                81: "🇯🇵",  # Japan
-                82: "🇰🇷",  # South Korea
-                84: "🇻🇳",  # Vietnam
-                86: "🇨🇳",  # China
-                90: "🇹🇷",  # Turkey
-                91: "🇮🇳",  # India
-                92: "🇵🇰",  # Pakistan
-                93: "🇦🇫",  # Afghanistan
-                94: "🇱🇰",  # Sri Lanka
-                95: "🇲🇲",  # Myanmar
-                98: "🇮🇷",  # Iran
-                212: "🇲🇦", # Morocco
-                213: "🇩🇿", # Algeria
-                216: "🇹🇳", # Tunisia
-                218: "🇱🇾", # Libya
-                220: "🇬🇲", # Gambia
-                221: "🇸🇳", # Senegal
-                222: "🇲🇷", # Mauritania
-                223: "🇲🇱", # Mali
-                224: "🇬🇳", # Guinea
-                225: "🇨🇮", # Ivory Coast
-                226: "🇧🇫", # Burkina Faso
-                227: "🇳🇪", # Niger
-                228: "🇹🇬", # Togo
-                229: "🇧🇯", # Benin
-                230: "🇲🇺", # Mauritius
-                231: "🇱🇷", # Liberia
-                232: "🇸🇱", # Sierra Leone
-                233: "🇬🇭", # Ghana
-                234: "🇳🇬", # Nigeria
-                235: "🇹🇩", # Chad
-                236: "🇨🇫", # Central African Republic
-                237: "🇨🇲", # Cameroon
-                238: "🇨🇻", # Cape Verde
-                239: "🇸🇹", # Sao Tome
-                240: "🇬🇶", # Equatorial Guinea
-                241: "🇬🇦", # Gabon
-                242: "🇨🇬", # Congo
-                243: "🇨🇩", # DR Congo
-                244: "🇦🇴", # Angola
-                245: "🇬🇼", # Guinea-Bissau
-                246: "🇮🇴", # Diego Garcia
-                247: "🇦🇨", # Ascension Island
-                248: "🇸🇨", # Seychelles
-                249: "🇸🇩", # Sudan
-                250: "🇷🇼", # Rwanda
-                251: "🇪🇹", # Ethiopia
-                252: "🇸🇴", # Somalia
-                253: "🇩🇯", # Djibouti
-                254: "🇰🇪", # Kenya
-                255: "🇹🇿", # Tanzania
-                256: "🇺🇬", # Uganda
-                257: "🇧🇮", # Burundi
-                258: "🇲🇿", # Mozambique
-                260: "🇿🇲", # Zambia
-                261: "🇲🇬", # Madagascar
-                262: "🇷🇪", # Reunion
-                263: "🇿🇼", # Zimbabwe
-                264: "🇳🇦", # Namibia
-                265: "🇲🇼", # Malawi
-                266: "🇱🇸", # Lesotho
-                267: "🇧🇼", # Botswana
-                268: "🇸🇿", # Eswatini
-                269: "🇰🇲", # Comoros
-                290: "🇸🇭", # St Helena
-                291: "🇪🇷", # Eritrea
-                297: "🇦🇼", # Aruba
-                298: "🇫🇴", # Faroe Islands
-                299: "🇬🇱", # Greenland
-                350: "🇬🇮", # Gibraltar
-                351: "🇵🇹", # Portugal
-                352: "🇱🇺", # Luxembourg
-                353: "🇮🇪", # Ireland
-                354: "🇮🇸", # Iceland
-                355: "🇦🇱", # Albania
-                356: "🇲🇹", # Malta
-                357: "🇨🇾", # Cyprus
-                358: "🇫🇮", # Finland
-                359: "🇧🇬", # Bulgaria
-                370: "🇱🇹", # Lithuania
-                371: "🇱🇻", # Latvia
-                372: "🇪🇪", # Estonia
-                373: "🇲🇩", # Moldova
-                374: "🇦🇲", # Armenia
-                375: "🇧🇾", # Belarus
-                376: "🇦🇩", # Andorra
-                377: "🇲🇨", # Monaco
-                378: "🇸🇲", # San Marino
-                379: "🇻🇦", # Vatican
-                380: "🇺🇦", # Ukraine
-                381: "🇷🇸", # Serbia
-                382: "🇲🇪", # Montenegro
-                383: "🇽🇰", # Kosovo
-                385: "🇭🇷", # Croatia
-                386: "🇸🇮", # Slovenia
-                387: "🇧🇦", # Bosnia
-                389: "🇲🇰", # North Macedonia
-                420: "🇨🇿", # Czech Republic
-                421: "🇸🇰", # Slovakia
-                423: "🇱🇮", # Liechtenstein
-                500: "🇫🇰", # Falkland Islands
-                501: "🇧🇿", # Belize
-                502: "🇬🇹", # Guatemala
-                503: "🇸🇻", # El Salvador
-                504: "🇭🇳", # Honduras
-                505: "🇳🇮", # Nicaragua
-                506: "🇨🇷", # Costa Rica
-                507: "🇵🇦", # Panama
-                508: "🇵🇲", # St Pierre
-                509: "🇭🇹", # Haiti
-                590: "🇬🇵", # Guadeloupe
-                591: "🇧🇴", # Bolivia
-                592: "🇬🇾", # Guyana
-                593: "🇪🇨", # Ecuador
-                594: "🇬🇫", # French Guiana
-                595: "🇵🇾", # Paraguay
-                596: "🇲🇶", # Martinique
-                597: "🇸🇷", # Suriname
-                598: "🇺🇾", # Uruguay
-                599: "🇨🇼", # Curacao
-                670: "🇹🇱", # Timor-Leste
-                672: "🇦🇶", # Antarctica
-                673: "🇧🇳", # Brunei
-                674: "🇳🇷", # Nauru
-                675: "🇵🇬", # Papua New Guinea
-                676: "🇹🇴", # Tonga
-                677: "🇸🇧", # Solomon Islands
-                678: "🇻🇺", # Vanuatu
-                679: "🇫🇯", # Fiji
-                680: "🇵🇼", # Palau
-                681: "🇼🇫", # Wallis and Futuna
-                682: "🇨🇰", # Cook Islands
-                683: "🇳🇺", # Niue
-                685: "🇼🇸", # Samoa
-                686: "🇰🇮", # Kiribati
-                687: "🇳🇨", # New Caledonia
-                688: "🇹🇻", # Tuvalu
-                689: "🇵🇫", # French Polynesia
-                690: "🇹🇰", # Tokelau
-                691: "🇫🇲", # Micronesia
-                692: "🇲🇭", # Marshall Islands
-                850: "🇰🇵", # North Korea
-                852: "🇭🇰", # Hong Kong
-                853: "🇲🇴", # Macau
-                855: "🇰🇭", # Cambodia
-                856: "🇱🇦", # Laos
-                880: "🇧🇩", # Bangladesh
-                886: "🇹🇼", # Taiwan
-                960: "🇲🇻", # Maldives
-                961: "🇱🇧", # Lebanon
-                962: "🇯🇴", # Jordan
-                963: "🇸🇾", # Syria
-                964: "🇮🇶", # Iraq
-                965: "🇰🇼", # Kuwait
-                966: "🇸🇦", # Saudi Arabia
-                967: "🇾🇪", # Yemen
-                968: "🇴🇲", # Oman
-                970: "🇵🇸", # Palestine
-                971: "🇦🇪", # UAE
-                972: "🇮🇱", # Israel
-                973: "🇧🇭", # Bahrain
-                974: "🇶🇦", # Qatar
-                975: "🇧🇹", # Bhutan
-                976: "🇲🇳", # Mongolia
-                977: "🇳🇵", # Nepal
-                992: "🇹🇯", # Tajikistan
-                993: "🇹🇲", # Turkmenistan
-                994: "🇦🇿", # Azerbaijan
-                995: "🇬🇪", # Georgia
-                996: "🇰🇬", # Kyrgyzstan
-                998: "🇺🇿", # Uzbekistan
+                1: "🇺🇸", 7: "🇷🇺", 20: "🇪🇬", 27: "🇿🇦", 30: "🇬🇷", 31: "🇳🇱",
+                32: "🇧🇪", 33: "🇫🇷", 34: "🇪🇸", 36: "🇭🇺", 39: "🇮🇹", 40: "🇷🇴",
+                41: "🇨🇭", 43: "🇦🇹", 44: "🇬🇧", 45: "🇩🇰", 46: "🇸🇪", 47: "🇳🇴",
+                48: "🇵🇱", 49: "🇩🇪", 51: "🇵🇪", 52: "🇲🇽", 53: "🇨🇺", 54: "🇦🇷",
+                55: "🇧🇷", 56: "🇨🇱", 57: "🇨🇴", 58: "🇻🇪", 60: "🇲🇾", 61: "🇦🇺",
+                62: "🇮🇩", 63: "🇵🇭", 64: "🇳🇿", 65: "🇸🇬", 66: "🇹🇭", 81: "🇯🇵",
+                82: "🇰🇷", 84: "🇻🇳", 86: "🇨🇳", 90: "🇹🇷", 91: "🇮🇳", 92: "🇵🇰",
+                93: "🇦🇫", 94: "🇱🇰", 95: "🇲🇲", 98: "🇮🇷", 212: "🇲🇦", 213: "🇩🇿",
+                216: "🇹🇳", 218: "🇱🇾", 220: "🇬🇲", 221: "🇸🇳", 222: "🇲🇷", 223: "🇲🇱",
+                224: "🇬🇳", 225: "🇨🇮", 226: "🇧🇫", 227: "🇳🇪", 228: "🇹🇬", 229: "🇧🇯",
+                230: "🇲🇺", 231: "🇱🇷", 232: "🇸🇱", 233: "🇬🇭", 234: "🇳🇬", 235: "🇹🇩",
+                236: "🇨🇫", 237: "🇨🇲", 238: "🇨🇻", 239: "🇸🇹", 240: "🇬🇶", 241: "🇬🇦",
+                242: "🇨🇬", 243: "🇨🇩", 244: "🇦🇴", 245: "🇬🇼", 246: "🇮🇴", 247: "🇦🇨",
+                248: "🇸🇨", 249: "🇸🇩", 250: "🇷🇼", 251: "🇪🇹", 252: "🇸🇴", 253: "🇩🇯",
+                254: "🇰🇪", 255: "🇹🇿", 256: "🇺🇬", 257: "🇧🇮", 258: "🇲🇿", 260: "🇿🇲",
+                261: "🇲🇬", 262: "🇷🇪", 263: "🇿🇼", 264: "🇳🇦", 265: "🇲🇼", 266: "🇱🇸",
+                267: "🇧🇼", 268: "🇸🇿", 269: "🇰🇲", 290: "🇸🇭", 291: "🇪🇷", 297: "🇦🇼",
+                298: "🇫🇴", 299: "🇬🇱", 350: "🇬🇮", 351: "🇵🇹", 352: "🇱🇺", 353: "🇮🇪",
+                354: "🇮🇸", 355: "🇦🇱", 356: "🇲🇹", 357: "🇨🇾", 358: "🇫🇮", 359: "🇧🇬",
+                370: "🇱🇹", 371: "🇱🇻", 372: "🇪🇪", 373: "🇲🇩", 374: "🇦🇲", 375: "🇧🇾",
+                376: "🇦🇩", 377: "🇲🇨", 378: "🇸🇲", 379: "🇻🇦", 380: "🇺🇦", 381: "🇷🇸",
+                382: "🇲🇪", 383: "🇽🇰", 385: "🇭🇷", 386: "🇸🇮", 387: "🇧🇦", 389: "🇲🇰",
+                420: "🇨🇿", 421: "🇸🇰", 423: "🇱🇮", 500: "🇫🇰", 501: "🇧🇿", 502: "🇬🇹",
+                503: "🇸🇻", 504: "🇭🇳", 505: "🇳🇮", 506: "🇨🇷", 507: "🇵🇦", 508: "🇵🇲",
+                509: "🇭🇹", 590: "🇬🇵", 591: "🇧🇴", 592: "🇬🇾", 593: "🇪🇨", 594: "🇬🇫",
+                595: "🇵🇾", 596: "🇲🇶", 597: "🇸🇷", 598: "🇺🇾", 599: "🇨🇼", 670: "🇹🇱",
+                672: "🇦🇶", 673: "🇧🇳", 674: "🇳🇷", 675: "🇵🇬", 676: "🇹🇴", 677: "🇸🇧",
+                678: "🇻🇺", 679: "🇫🇯", 680: "🇵🇼", 681: "🇼🇫", 682: "🇨🇰", 683: "🇳🇺",
+                685: "🇼🇸", 686: "🇰🇮", 687: "🇳🇨", 688: "🇹🇻", 689: "🇵🇫", 690: "🇹🇰",
+                691: "🇫🇲", 692: "🇲🇭", 850: "🇰🇵", 852: "🇭🇰", 853: "🇲🇴", 855: "🇰🇭",
+                856: "🇱🇦", 880: "🇧🇩", 886: "🇹🇼", 960: "🇲🇻", 961: "🇱🇧", 962: "🇯🇴",
+                963: "🇸🇾", 964: "🇮🇶", 965: "🇰🇼", 966: "🇸🇦", 967: "🇾🇪", 968: "🇴🇲",
+                970: "🇵🇸", 971: "🇦🇪", 972: "🇮🇱", 973: "🇧🇭", 974: "🇶🇦", 975: "🇧🇹",
+                976: "🇲🇳", 977: "🇳🇵", 992: "🇹🇯", 993: "🇹🇲", 994: "🇦🇿", 995: "🇬🇪",
+                996: "🇰🇬", 998: "🇺🇿"
             }
             
             flag = country_flags.get(country_code, "🌍")
@@ -313,19 +157,58 @@ class OTPBot:
         except:
             return "🌍", ""
     
-    def format_phone_display(self, phone_number):
-        """Format phone number with country flag in the requested style"""
-        flag, country_code = self.get_country_flag_and_code(phone_number)
-        # Mask the phone number (show first 4 and last 4 digits)
-        phone_str = str(phone_number)
-        if len(phone_str) >= 8:
-            masked = phone_str[:4] + "****" + phone_str[-4:]
-        elif len(phone_str) >= 4:
-            masked = phone_str[:2] + "***" + phone_str[-2:]
-        else:
-            masked = phone_str
-        
-        return f"╭────────────────────╮\n│ {flag} #{country_code} 📱 <code>{masked}</code> │\n╰────────────────────╯"
+    def send_otp_custom_format(self, country_flag, country_code, platform, number, otp):
+        """
+        Send OTP in exact custom format - no extra text
+        """
+        try:
+            # Platform logo
+            platform_info = PLATFORM_EMOJIS.get(platform.upper(), PLATFORM_EMOJIS["OTHER"])
+            platform_logo = f'<tg-emoji emoji-id="{platform_info["emoji_id"]}">{platform_info["short"]}</tg-emoji>'
+            
+            # Use full number without masking
+            formatted_number = str(number)
+            
+            # Create message - ONLY the box
+            message = (
+                f"╭────────────────────╮\n"
+                f"│ {country_flag} {country_code} {platform_logo} {formatted_number} │\n"
+                f"╰────────────────────╯"
+            )
+            
+            # Buttons
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": f"{otp}", "copy_text": {"text": otp}}],
+                    [
+                        {"text": "🚀 Number Panel", "url": "https://t.me/RTX_Number_Bot"},
+                        {"text": "⚙️ Main Channel", "url": "https://t.me/TR_TECH_ZONE"}
+                    ]
+                ]
+            }
+            
+            # Send to second chat using requests
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN_2}/sendMessage",
+                json={
+                    "chat_id": CHAT_ID_2,
+                    "text": message,
+                    "parse_mode": "HTML",
+                    "reply_markup": keyboard
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"Custom format OTP sent: {otp}")
+                return True
+            else:
+                logger.error(f"Failed to send: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Custom format error: {e}")
+            return False
     
     def setup_browser(self):
         try:
@@ -455,39 +338,39 @@ class OTPBot:
         client_lower = str(client).lower()
         
         if 'telegram' in message_lower or 'telegram' in client_lower:
-            return "Telegram"
+            return "TELEGRAM"
         elif 'whatsapp' in message_lower or 'whatsapp' in client_lower:
-            return "WhatsApp"
+            return "WHATSAPP"
         elif 'instagram' in message_lower:
-            return "Instagram"
+            return "INSTAGRAM"
         elif 'facebook' in message_lower or 'fb' in message_lower:
-            return "Facebook"
+            return "FACEBOOK"
         elif 'gmail' in message_lower or 'google' in message_lower:
-            return "Gmail"
+            return "GMAIL"
         elif 'twitter' in message_lower or 'x.com' in message_lower:
-            return "Twitter/X"
+            return "OTHER"
         elif 'apple' in message_lower or 'icloud' in message_lower:
-            return "Apple"
+            return "OTHER"
         elif 'microsoft' in message_lower or 'outlook' in message_lower:
-            return "Microsoft"
+            return "OTHER"
         elif 'amazon' in message_lower:
-            return "Amazon"
+            return "OTHER"
         elif 'paypal' in message_lower:
-            return "PayPal"
+            return "OTHER"
         elif 'binance' in message_lower or 'crypto' in message_lower:
-            return "Binance/Crypto"
+            return "OTHER"
         elif 'discord' in message_lower:
-            return "Discord"
+            return "OTHER"
         elif 'spotify' in message_lower:
-            return "Spotify"
+            return "OTHER"
         elif 'netflix' in message_lower:
-            return "Netflix"
+            return "OTHER"
         elif 'tiktok' in message_lower:
-            return "TikTok"
+            return "OTHER"
         elif 'signal' in message_lower:
-            return "Signal"
+            return "OTHER"
         else:
-            return "Other"
+            return "OTHER"
     
     def extract_otp(self, message):
         if not isinstance(message, str):
@@ -530,31 +413,37 @@ class OTPBot:
         except:
             return []
     
-    async def send_telegram(self, msg):
+    async def send_startup_message(self):
+        """Send startup notification to both chats"""
         try:
-            keyboard = [[
-                InlineKeyboardButton("Main Channel", url="https://t.me/updaterange"),
-                InlineKeyboardButton("Number Bot", url="https://t.me/Updateotpnew_bot"),
-                InlineKeyboardButton("Developer", url="https://t.me/rana1132")
-            ]]
+            startup_msg = "✅ Bot Started!"
+            
+            # Send to first chat
             await self.bot.send_message(
                 chat_id=GROUP_CHAT_ID,
-                text=msg,
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                disable_web_page_preview=True
+                text=startup_msg,
+                parse_mode="HTML"
             )
-            return True
+            
+            # Send to second chat
+            requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN_2}/sendMessage",
+                json={
+                    "chat_id": CHAT_ID_2,
+                    "text": startup_msg,
+                    "parse_mode": "HTML"
+                },
+                timeout=10
+            )
         except Exception as e:
-            logger.error(f"Telegram error: {e}")
-            return False
+            logger.error(f"Startup message error: {e}")
     
     async def send_all_today_otps(self):
         logger.info("Sending today's OTPs...")
         
         sms_list = self.get_sms()
         if not sms_list:
-            await self.send_telegram("No OTPs found for today")
+            await self.send_startup_message()
             return
         
         otp_count = 0
@@ -563,46 +452,28 @@ class OTPBot:
             if otp:
                 sms_id = f"{sms['time']}_{sms['phone']}_{sms['message'][:50]}"
                 if sms_id not in self.processed_otps:
-                    phone_display = self.format_phone_display(sms['phone'])
                     platform = self.extract_platform(sms['message'], sms['client'])
+                    flag, country_code = self.get_country_flag_and_code(sms['phone'])
                     
-                    msg = f"""
-<b>Previous OTP</b>
-────────────────────
-
-<b>Time:</b> <code>{sms['time']}</code>
-{phone_display}
-<b>Platform:</b> {platform}
-
-<b>OTP Code:</b> <code>{otp}</code>
-
-────────────────────
-@updaterange
-"""
-                    if await self.send_telegram(msg):
+                    # Send with custom format
+                    if self.send_otp_custom_format(
+                        flag, 
+                        country_code, 
+                        platform, 
+                        sms['phone'], 
+                        otp
+                    ):
                         self.processed_otps.add(sms_id)
                         otp_count += 1
                         await asyncio.sleep(1)
         
         logger.info(f"Sent {otp_count} OTPs")
         self._save_processed_otps()
-        
-        await self.send_telegram(
-            f"<b>Startup Complete!</b>\n"
-            f"────────────────────\n"
-            f"Today's OTPs: {otp_count}\n"
-            f"Check Interval: 0.5 seconds\n"
-            f"Browser Refresh: Every 1.5 seconds\n"
-            f"Status: Monitoring\n"
-            f"Started: {datetime.now().strftime('%H:%M:%S')}\n"
-            f"────────────────────"
-        )
+        await self.send_startup_message()
     
     async def monitor(self):
         logger.info("Starting OTP monitor (0.5 sec interval)...")
         logger.info("Browser will refresh every 1.5 seconds")
-        
-        await self.send_telegram(f"Bot Started!\nUser: {USERNAME}")
         
         while self.is_monitoring:
             try:
@@ -618,27 +489,18 @@ class OTPBot:
                             otp = self.extract_otp(sms['message'])
                             if otp:
                                 platform = self.extract_platform(sms['message'], sms['client'])
-                                phone_display = self.format_phone_display(sms['phone'])
+                                flag, country_code = self.get_country_flag_and_code(sms['phone'])
                                 
                                 logger.info(f"NEW OTP! {sms['time']} - {sms['phone']} - {platform}")
                                 
-                                msg = f"""
-<b>NEW OTP!</b>
-────────────────────
-
-<b>Time:</b> <code>{sms['time']}</code>
-{phone_display}
-<b>Platform:</b> {platform}
-
-<b>OTP Code:</b> <code>{otp}</code>
-
-<b>Message:</b>
-<code>{sms['message'][:300]}</code>
-
-────────────────────
-@updaterange
-"""
-                                if await self.send_telegram(msg):
+                                # Send using custom format
+                                if self.send_otp_custom_format(
+                                    flag, 
+                                    country_code, 
+                                    platform, 
+                                    sms['phone'], 
+                                    otp
+                                ):
                                     self.processed_otps.add(sms_id)
                                     self.total_otps_sent += 1
                                     self._save_processed_otps()
@@ -677,7 +539,6 @@ class OTPBot:
         print("BOLT SMS - OTP MONITOR BOT")
         print("="*60)
         print(f"Username: {USERNAME}")
-        print(f"Telegram: {GROUP_CHAT_ID}")
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
         if IS_RAILWAY:
@@ -694,7 +555,6 @@ class OTPBot:
         print("\nLogging in...")
         if not self.auto_login():
             print("Login failed!")
-            await self.send_telegram("<b>Login Failed!</b>")
             return
         
         print("\nLogin successful!")
