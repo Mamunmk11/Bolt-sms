@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 """
 Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
-- Checks OTP every 0.5 seconds
-- Refreshes browser every 1.5 seconds
-- Only sends NEW OTPs (no duplicates on restart)
-- Supports 4-8 digit OTP codes
-- Click on OTP to copy
 """
 
 import os
@@ -25,8 +20,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import WebDriverException, TimeoutException
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CallbackQueryHandler
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 # ========== CONFIGURATION ==========
 TELEGRAM_BOT_TOKEN = "8618305528:AAF64PwFIlsw091Hbns8fGQqvwVSW6_4iCY"
@@ -39,7 +34,7 @@ SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
 # Platform emoji mapping
 PLATFORM_EMOJIS = {
-    "TELEGRAM": "🪁",
+    "TELEGRAM": "📨",
     "WHATSAPP": "💚",
     "FACEBOOK": "📘",
     "INSTAGRAM": "📸",
@@ -58,6 +53,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Global bot instance for callback handler
+bot_instance = None
+
+async def copy_otp_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle OTP copy button click"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract OTP from callback data
+    otp = query.data.replace("copy_", "")
+    
+    # Copy to clipboard
+    await query.message.reply_text(
+        f"✅ OTP `{otp}` copied to clipboard!",
+        parse_mode="Markdown"
+    )
+    
+    # Also try to set clipboard using JavaScript (for web)
+    try:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"`{otp}`",
+            parse_mode="Markdown"
+        )
+    except:
+        pass
+
 class OTPBot:
     def __init__(self):
         self.driver = None
@@ -67,6 +89,10 @@ class OTPBot:
         self.is_monitoring = True
         self.bot = Bot(token=TELEGRAM_BOT_TOKEN)
         self.refresh_counter = 0
+        
+        # Setup application for callback handling
+        self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        self.application.add_handler(CallbackQueryHandler(copy_otp_handler, pattern="^copy_"))
         
         logger.info("Bolt SMS OTP Monitor Bot Initialized")
         if IS_RAILWAY:
@@ -79,25 +105,18 @@ class OTPBot:
         try:
             clean_number = re.sub(r'\D', '', str(phone_number))
             
-            # Zimbabwe numbers start with 263
             if clean_number.startswith('263'):
                 return "🇿🇼", "#ZW"
-            # Bangladesh numbers start with 880
             elif clean_number.startswith('880'):
                 return "🇧🇩", "#BD"
-            # India numbers start with 91
             elif clean_number.startswith('91'):
                 return "🇮🇳", "#IN"
-            # Pakistan numbers start with 92
             elif clean_number.startswith('92'):
                 return "🇵🇰", "#PK"
-            # USA/Canada start with 1
             elif clean_number.startswith('1'):
                 return "🇺🇸", "#US"
-            # UK starts with 44
             elif clean_number.startswith('44'):
                 return "🇬🇧", "#UK"
-            # Nigeria starts with 234
             elif clean_number.startswith('234'):
                 return "🇳🇬", "#NG"
             else:
@@ -106,13 +125,12 @@ class OTPBot:
             return "🌍", "#??"
     
     async def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram group - OTP ক্লিক করলে কপি হবে"""
+        """Send OTP to Telegram group - کلیک کرنے پر کاپی ہوگا"""
         try:
-            # Get platform emoji
             platform_emoji = PLATFORM_EMOJIS.get(platform.upper(), "📱")
             
-            # Mask the number
-            number_str = str(number)
+            # Clean number - only digits
+            number_str = re.sub(r'\D', '', str(number))
             if len(number_str) >= 8:
                 formatted_number = number_str[:4] + "****" + number_str[-4:]
             elif len(number_str) >= 4:
@@ -120,14 +138,10 @@ class OTPBot:
             else:
                 formatted_number = number_str
             
-            # Message box
-            message = (
-                f"╭────────────────────╮\n"
-                f"│ {country_flag} {country_code} {platform_emoji} {formatted_number} │\n"
-                f"╰────────────────────╯"
-            )
+            # Clean message - no extra spaces
+            message = f"╭────────────────────╮\n│ {country_flag} {country_code} {platform_emoji} {formatted_number} │\n╰────────────────────╯"
             
-            # ক্লিকেবল OTP বাটন - টাচ করলেই কপি হবে
+            # Keyboard with copy button
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton(text=f"📋 {otp}", callback_data=f"copy_{otp}")],
                 [
@@ -366,9 +380,18 @@ class OTPBot:
             logger.error(f"Get SMS error: {e}")
             return []
     
+    async def run_application(self):
+        """Run the telegram application for callback handling"""
+        await self.application.initialize()
+        await self.application.start()
+        return self.application
+    
     async def monitor(self):
         logger.info("Starting OTP monitor (0.5 sec interval)...")
         logger.info("Browser will refresh every 1.5 seconds")
+        
+        # Start telegram application for callbacks
+        app = await self.run_application()
         
         while self.is_monitoring:
             try:
@@ -426,6 +449,8 @@ class OTPBot:
             except Exception as e:
                 logger.error(f"Monitor error: {e}")
                 await asyncio.sleep(1)
+        
+        await app.stop()
     
     async def run(self):
         print("\n" + "="*60)
@@ -435,8 +460,7 @@ class OTPBot:
         print(f"Telegram Chat: {GROUP_CHAT_ID}")
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
-        print(f"OTP Support: 4-8 digits")
-        print(f"Feature: Click on OTP to copy")
+        print(f"Feature: Click on 📋 OTP to copy")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
         else:
@@ -460,7 +484,7 @@ class OTPBot:
         print("="*60)
         print("Checking for new OTPs every 0.5 seconds")
         print("Browser refreshing every 1.5 seconds")
-        print("Click on OTP button to copy the code")
+        print("Click on 📋 OTP button to copy the code")
         if not IS_RAILWAY:
             print("Browser window will stay open")
         print("Press Ctrl+C to stop")
