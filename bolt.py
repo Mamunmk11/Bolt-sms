@@ -6,7 +6,7 @@ Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
 - Only sends NEW OTPs (no duplicates on restart)
 - Supports 4-8 digit OTP codes
 - Click on OTP to copy
-- Platform short codes (TG, WS, FB, etc.)
+- Platform emoji with short codes (🪁TG, 💚WS, 📘FB, etc.)
 """
 
 import os
@@ -36,15 +36,15 @@ BASE_URL = "http://93.190.143.35"
 LOGIN_URL = f"{BASE_URL}/ints/Login"
 SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
-# Platform short codes (without emoji)
-PLATFORM_CODES = {
-    "TELEGRAM": "TG",
-    "WHATSAPP": "WS",
-    "FACEBOOK": "FB",
-    "INSTAGRAM": "IG",
-    "GMAIL": "GM",
-    "APPLE": "AP",
-    "OTHER": "OT"
+# Platform emoji mapping with short codes
+PLATFORM_EMOJIS = {
+    "TELEGRAM": "🪁TG",
+    "WHATSAPP": "💚WS",
+    "FACEBOOK": "📘FB",
+    "INSTAGRAM": "📸IG",
+    "GMAIL": "📧GM",
+    "APPLE": "🍎AP",
+    "OTHER": "📱OT"
 }
 
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
@@ -104,10 +104,10 @@ class OTPBot:
             return "🌍", "#??"
     
     def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram - with platform short codes only (no emoji)"""
+        """Send OTP to Telegram - with platform emoji and short codes"""
         try:
-            # Get platform short code (TG, WS, FB, etc.)
-            platform_code = PLATFORM_CODES.get(platform.upper(), "OT")
+            # Get platform emoji with short code (e.g., 🪁TG, 💚WS, 📘FB)
+            platform_display = PLATFORM_EMOJIS.get(platform.upper(), "📱OT")
             
             # Mask the number
             number_str = re.sub(r'\D', '', str(number))
@@ -118,26 +118,26 @@ class OTPBot:
             else:
                 formatted_number = number_str
             
-            # Simple message - flag country_code platform_code masked_number
-            # Example: 🇿🇼 #ZW TG 2637****8341
-            message = f"{country_flag} {country_code} {platform_code} {formatted_number}"
+            # Message format: flag country_code platform_display masked_number
+            # Example: 🇿🇼 #ZW 🪁TG 2637****8341
+            message = f"{country_flag} {country_code} {platform_display} {formatted_number}"
             
             # Keyboard with copy feature
             keyboard = {
                 "inline_keyboard": [
                     [
                         {
-                            "text": f"{otp}",
-                            "copy_text": {"text": otp}
+                            "text": f"📋 {otp}",
+                            "callback_data": f"copy_{otp}"
                         }
                     ],
                     [
                         {
-                            "text": "Number Bot",
+                            "text": "🔢 Number Bot",
                             "url": "https://t.me/Updateotpnew_bot"
                         },
                         {
-                            "text": "Main Channel",
+                            "text": "📢 Main Channel",
                             "url": "https://t.me/updaterange"
                         }
                     ]
@@ -158,7 +158,7 @@ class OTPBot:
             )
             
             if response.status_code == 200:
-                logger.info(f"OTP sent: {otp} for {platform}")
+                logger.info(f"✅ OTP sent: {otp} for {platform}")
                 return True
             else:
                 logger.error(f"Failed to send: {response.status_code}")
@@ -426,7 +426,7 @@ class OTPBot:
                                 platform = self.extract_platform(sms['message'], sms['client'])
                                 flag, country_code = self.get_country_flag_and_code(sms['phone'])
                                 
-                                logger.info(f"NEW OTP! {otp} - {sms['phone']} - {platform}")
+                                logger.info(f"📱 NEW OTP! {otp} - {sms['phone']} - {platform}")
                                 
                                 # Send to Telegram
                                 result = self.send_otp_to_telegram(
@@ -436,9 +436,9 @@ class OTPBot:
                                 if result:
                                     self.processed_otps.add(sms_id)
                                     self.total_otps_sent += 1
-                                    logger.info(f"Total OTPs sent: {self.total_otps_sent}")
+                                    logger.info(f"✅ Total OTPs sent: {self.total_otps_sent}")
                                 else:
-                                    logger.error(f"Failed to send OTP {otp}")
+                                    logger.error(f"❌ Failed to send OTP {otp}")
                                     
                                 await asyncio.sleep(0.5)
                 
@@ -478,8 +478,8 @@ class OTPBot:
         print(f"Telegram Chat: {GROUP_CHAT_ID}")
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
-        print(f"Platform Short Codes: TG, WS, FB, IG, GM, AP, OT")
-        print(f"Feature: Click on OTP button to copy")
+        print(f"Platform Format: 🪁TG, 💚WS, 📘FB, 📸IG, 📧GM, 🍎AP, 📱OT")
+        print(f"Feature: Click on 📋 OTP to copy")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
         else:
@@ -503,7 +503,7 @@ class OTPBot:
         print("="*60)
         print("Checking for new OTPs every 0.5 seconds")
         print("Browser refreshing every 1.5 seconds")
-        print("Click on OTP button to copy the code")
+        print("Click on 📋 OTP button to copy the code")
         if not IS_RAILWAY:
             print("Browser window will stay open")
         print("Press Ctrl+C to stop")
