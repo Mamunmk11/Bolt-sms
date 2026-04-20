@@ -19,7 +19,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import WebDriverException, TimeoutException
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 # ========== CONFIGURATION ==========
@@ -30,10 +30,6 @@ PASSWORD = "mamun1132"
 BASE_URL = "http://93.190.143.35"
 LOGIN_URL = f"{BASE_URL}/ints/Login"
 SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
-
-# Second bot configuration
-BOT_TOKEN_2 = "8639902314:AAENcAdowvvpHnU75UpLMcGRJ24yVizFMZg"
-CHAT_ID_2 = "-1003818275876"
 
 # Platform emoji mapping
 PLATFORM_EMOJIS = {
@@ -60,7 +56,7 @@ class OTPBot:
     def __init__(self):
         self.driver = None
         self.logged_in = False
-        self.processed_otps = self._load_processed_otps()
+        self.processed_otps = set()
         self.total_otps_sent = 0
         self.is_monitoring = True
         self.bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -71,16 +67,6 @@ class OTPBot:
             logger.info("Running on Railway (Headless Mode)")
         else:
             logger.info("Running on Local PC (Browser Mode)")
-    
-    def _load_processed_otps(self):
-        """Load processed OTPs - return empty set to send all OTPs"""
-        return set()
-    
-    def _save_processed_otps(self):
-        pass
-    
-    def _get_otp_hash(self, phone, otp, message):
-        return f"{phone}_{otp}"
     
     def get_country_flag_and_code(self, phone_number):
         try:
@@ -98,7 +84,7 @@ class OTPBot:
         except:
             return "🌍", "#0"
     
-    def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
+    async def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
         """Send OTP to Telegram group"""
         try:
             platform_info = PLATFORM_EMOJIS.get(platform.upper(), PLATFORM_EMOJIS["OTHER"])
@@ -110,16 +96,14 @@ class OTPBot:
                 f"╰────────────────────╯"
             )
             
-            # Using python-telegram-bot instead of requests
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(text=f"{otp}", callback_data="copy")],
+                [InlineKeyboardButton(text=f"📋 {otp}", callback_data=f"copy_{otp}")],
                 [
                     InlineKeyboardButton(text="🚀 Number Panel", url="https://t.me/RTX_Number_Bot"),
                     InlineKeyboardButton(text="⚙️ Main Channel", url="https://t.me/TR_TECH_ZONE")
                 ]
             ])
             
-            # Send using the bot instance
             await self.bot.send_message(
                 chat_id=GROUP_CHAT_ID,
                 text=message,
@@ -174,18 +158,31 @@ class OTPBot:
     
     def solve_captcha(self):
         try:
-            captcha_text = self.driver.find_element(By.XPATH, "//div[contains(text(), 'What is')]").text
-            match = re.search(r'(\d+)\s*\+\s*(\d+)', captcha_text)
-            if match:
-                num1 = int(match.group(1))
-                num2 = int(match.group(2))
-                result = num1 + num2
-                logger.info(f"Captcha: {num1} + {num2} = {result}")
-                
-                captcha_input = self.driver.find_element(By.NAME, "capt")
-                captcha_input.clear()
-                captcha_input.send_keys(str(result))
-                return True
+            # Try different selectors for captcha
+            captcha_text = None
+            try:
+                captcha_text = self.driver.find_element(By.XPATH, "//div[contains(text(), 'What is')]").text
+            except:
+                try:
+                    captcha_text = self.driver.find_element(By.XPATH, "//label[contains(text(), 'What is')]").text
+                except:
+                    try:
+                        captcha_text = self.driver.find_element(By.CLASS_NAME, "captcha").text
+                    except:
+                        pass
+            
+            if captcha_text:
+                match = re.search(r'(\d+)\s*\+\s*(\d+)', captcha_text)
+                if match:
+                    num1 = int(match.group(1))
+                    num2 = int(match.group(2))
+                    result = num1 + num2
+                    logger.info(f"Captcha: {num1} + {num2} = {result}")
+                    
+                    captcha_input = self.driver.find_element(By.NAME, "capt")
+                    captcha_input.clear()
+                    captcha_input.send_keys(str(result))
+                    return True
             return False
         except Exception as e:
             logger.error(f"Captcha error: {e}")
@@ -196,58 +193,103 @@ class OTPBot:
             logger.info("Logging in...")
             
             self.driver.get(LOGIN_URL)
-            time.sleep(3)
+            time.sleep(5)  # Wait longer for page to load
             
-            username_field = WebDriverWait(self.driver, 10).until(
+            # Wait for username field
+            username_field = WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.NAME, "username"))
             )
             username_field.clear()
             username_field.send_keys(USERNAME)
             logger.info(f"Username: {USERNAME}")
             
+            # Password field
             password_field = self.driver.find_element(By.NAME, "password")
             password_field.clear()
             password_field.send_keys(PASSWORD)
             logger.info("Password entered")
             
-            time.sleep(1)
+            time.sleep(2)
+            
+            # Solve captcha
             self.solve_captcha()
             
             time.sleep(1)
+            
+            # Try multiple ways to find and click login button
+            login_clicked = False
+            
+            # Method 1: Try button with type submit
             try:
                 login_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
                 login_btn.click()
-                logger.info("Login button clicked")
+                login_clicked = True
+                logger.info("Login button clicked (button submit)")
             except:
+                pass
+            
+            # Method 2: Try input with type submit
+            if not login_clicked:
                 try:
                     login_btn = self.driver.find_element(By.XPATH, "//input[@type='submit']")
                     login_btn.click()
-                    logger.info("Login button clicked")
+                    login_clicked = True
+                    logger.info("Login button clicked (input submit)")
                 except:
-                    try:
-                        login_btn = self.driver.find_element(By.XPATH, "//*[contains(text(), 'Sign In')]")
-                        login_btn.click()
-                        logger.info("Login button clicked")
-                    except:
-                        form = self.driver.find_element(By.TAG_NAME, "form")
-                        form.submit()
-                        logger.info("Form submitted")
+                    pass
             
-            time.sleep(5)
+            # Method 3: Try any button with Login/Sign In text
+            if not login_clicked:
+                try:
+                    login_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Login') or contains(text(), 'Sign In')]")
+                    login_btn.click()
+                    login_clicked = True
+                    logger.info("Login button clicked (text match)")
+                except:
+                    pass
+            
+            # Method 4: Try by class name
+            if not login_clicked:
+                try:
+                    login_btn = self.driver.find_element(By.CLASS_NAME, "btn-primary")
+                    login_btn.click()
+                    login_clicked = True
+                    logger.info("Login button clicked (class name)")
+                except:
+                    pass
+            
+            # Method 5: Submit the form directly
+            if not login_clicked:
+                try:
+                    form = self.driver.find_element(By.TAG_NAME, "form")
+                    form.submit()
+                    login_clicked = True
+                    logger.info("Form submitted directly")
+                except:
+                    pass
+            
+            if not login_clicked:
+                logger.error("Could not find login button!")
+                return False
+            
+            # Wait for login to complete
+            time.sleep(8)
             
             current_url = self.driver.current_url
-            logger.info(f"URL: {current_url}")
+            logger.info(f"URL after login: {current_url}")
             
-            if 'agent' in current_url or 'Dashboard' in current_url:
+            # Check if login successful
+            if 'agent' in current_url or 'Dashboard' in current_url or 'SMS' in current_url:
                 logger.info("LOGIN SUCCESSFUL!")
                 self.logged_in = True
                 
+                # Go to SMS page
                 self.driver.get(SMS_PAGE_URL)
-                time.sleep(5)
+                time.sleep(8)
                 logger.info("SMS page loaded")
                 return True
             else:
-                logger.error("Login failed!")
+                logger.error("Login failed - wrong URL")
                 return False
                 
         except Exception as e:
@@ -281,7 +323,7 @@ class OTPBot:
         if match:
             return match.group(1)
         
-        # Pattern 2: code 47543 or CODE 47543
+        # Pattern 2: code 47543
         match = re.search(r'(?:code|CODE|OTP|otp)[:\s]*(\d{4,8})', message)
         if match:
             return match.group(1)
@@ -301,6 +343,9 @@ class OTPBot:
     
     def get_sms(self):
         try:
+            # Wait for table to load
+            time.sleep(1)
+            
             rows = self.driver.find_elements(By.XPATH, "//table/tbody/tr")
             if not rows:
                 return []
@@ -341,7 +386,7 @@ class OTPBot:
                     for sms in sms_list:
                         otp = self.extract_otp(sms['message'])
                         if otp:
-                            sms_id = self._get_otp_hash(sms['phone'], otp, sms['message'])
+                            sms_id = f"{sms['phone']}_{otp}"
                             
                             if sms_id not in self.processed_otps:
                                 platform = self.extract_platform(sms['message'], sms['client'])
@@ -349,7 +394,6 @@ class OTPBot:
                                 
                                 logger.info(f"📱 NEW OTP! {otp} - {sms['phone']} - {platform}")
                                 
-                                # Send to Telegram
                                 result = await self.send_otp_to_telegram(
                                     flag, country_code, platform, sms['phone'], otp
                                 )
@@ -398,7 +442,6 @@ class OTPBot:
         print(f"Telegram Chat: {GROUP_CHAT_ID}")
         print(f"Check Interval: 0.5 seconds")
         print(f"Browser Refresh: Every 1.5 seconds")
-        print(f"OTP Support: 4-8 digits")
         if IS_RAILWAY:
             print("Running on Railway (Headless Mode)")
         else:
