@@ -33,13 +33,13 @@ SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
 # Platform emoji mapping
 PLATFORM_EMOJIS = {
-    "WHATSAPP": {"short": "WS", "emoji_id": "5226815671261763813"},
-    "TELEGRAM": {"short": "TG", "emoji_id": "5267139126339084336"},
-    "FACEBOOK": {"short": "FB", "emoji_id": "5269492171416832604"},
-    "INSTAGRAM": {"short": "IG", "emoji_id": "5226815671261763813"},
-    "GMAIL": {"short": "GM", "emoji_id": "5226815671261763813"},
-    "APPLE": {"short": "AP", "emoji_id": "5226815671261763813"},
-    "OTHER": {"short": "OT", "emoji_id": "5226815671261763813"}
+    "WHATSAPP": {"short": "WS", "emoji": "💚"},
+    "TELEGRAM": {"short": "TG", "emoji": "📨"},
+    "FACEBOOK": {"short": "FB", "emoji": "📘"},
+    "INSTAGRAM": {"short": "IG", "emoji": "📸"},
+    "GMAIL": {"short": "GM", "emoji": "📧"},
+    "APPLE": {"short": "AP", "emoji": "🍎"},
+    "OTHER": {"short": "OT", "emoji": "📱"}
 }
 
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
@@ -69,34 +69,68 @@ class OTPBot:
             logger.info("Running on Local PC (Browser Mode)")
     
     def get_country_flag_and_code(self, phone_number):
+        """Get country flag emoji and country code from phone number"""
         try:
-            parsed = phonenumbers.parse(phone_number, None)
-            country_code = parsed.country_code
+            # Remove any non-digit characters
+            clean_number = re.sub(r'\D', '', str(phone_number))
             
-            country_flags = {
-                1: "🇺🇸", 44: "🇬🇧", 91: "🇮🇳", 92: "🇵🇰", 
-                880: "🇧🇩", 263: "🇿🇼", 234: "🇳🇬", 20: "🇪🇬",
-                966: "🇸🇦", 971: "🇦🇪", 962: "🇯🇴", 965: "🇰🇼",
-                974: "🇶🇦", 973: "🇧🇭", 968: "🇴🇲", 961: "🇱🇧"
-            }
-            flag = country_flags.get(country_code, "🌍")
-            return flag, f"#{country_code}"
+            # Zimbabwe numbers start with 263
+            if clean_number.startswith('263'):
+                return "🇿🇼", "#ZW"
+            # Bangladesh numbers start with 880
+            elif clean_number.startswith('880'):
+                return "🇧🇩", "#BD"
+            # India numbers start with 91
+            elif clean_number.startswith('91'):
+                return "🇮🇳", "#IN"
+            # Pakistan numbers start with 92
+            elif clean_number.startswith('92'):
+                return "🇵🇰", "#PK"
+            # USA/Canada start with 1
+            elif clean_number.startswith('1'):
+                return "🇺🇸", "#US"
+            # UK starts with 44
+            elif clean_number.startswith('44'):
+                return "🇬🇧", "#UK"
+            # Nigeria starts with 234
+            elif clean_number.startswith('234'):
+                return "🇳🇬", "#NG"
+            # Egypt starts with 20
+            elif clean_number.startswith('20'):
+                return "🇪🇬", "#EG"
+            # Saudi Arabia starts with 966
+            elif clean_number.startswith('966'):
+                return "🇸🇦", "#SA"
+            # UAE starts with 971
+            elif clean_number.startswith('971'):
+                return "🇦🇪", "#AE"
+            else:
+                return "🌍", "#??"
         except:
-            return "🌍", "#0"
+            return "🌍", "#??"
     
     async def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram group - Fixed version without copy_text issue"""
+        """Send OTP to Telegram group"""
         try:
             platform_info = PLATFORM_EMOJIS.get(platform.upper(), PLATFORM_EMOJIS["OTHER"])
-            platform_logo = f'<tg-emoji emoji-id="{platform_info["emoji_id"]}">{platform_info["short"]}</tg-emoji>'
+            platform_logo = platform_info["emoji"]
+            
+            # Format the number - show last 4 digits masked
+            number_str = str(number)
+            if len(number_str) >= 8:
+                formatted_number = number_str[:4] + "****" + number_str[-4:]
+            elif len(number_str) >= 4:
+                formatted_number = number_str[:2] + "***" + number_str[-2:]
+            else:
+                formatted_number = number_str
             
             message = (
                 f"╭────────────────────╮\n"
-                f"│ {country_flag} {country_code} {platform_logo} <code>{number}</code> │\n"
+                f"│ {country_flag} {country_code} {platform_logo} {formatted_number} │\n"
                 f"╰────────────────────╯"
             )
             
-            # Fixed buttons - using callback_data instead of copy_text
+            # Buttons
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton(text=f"📋 {otp}", callback_data=f"copy_{otp}")],
                 [
