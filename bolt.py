@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
-Bolt SMS - Automatic OTP Monitor Bot (Railway Compatible)
-- Checks OTP every 0.5 seconds
-- Refreshes browser every 1.5 seconds
-- Only sends NEW OTPs (no duplicates on restart)
-- Supports 4-8 digit OTP codes
-- Click on OTP to copy (using copy_text feature)
-- Platform short codes with emojis (🪁TG, 💚WS, 📘FB, etc.)
+Bolt SMS - Complete OTP Monitor Bot
+- Full country flags and short codes (100+ countries)
+- Full platform names (WhatsApp, Facebook, Apple, etc.)
+- Clickable OTP button (copy_text feature)
+- 1.5 sec browser refresh, 0.5 sec check interval
 """
 
 import os
@@ -17,7 +15,6 @@ import logging
 import re
 import asyncio
 import requests
-import phonenumbers
 from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -25,7 +22,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import WebDriverException, TimeoutException
+from selenium.common.exceptions import WebDriverException
 
 # ========== CONFIGURATION ==========
 TELEGRAM_BOT_TOKEN = "8618305528:AAF64PwFIlsw091Hbns8fGQqvwVSW6_4iCY"
@@ -36,19 +33,7 @@ BASE_URL = "http://93.190.143.35"
 LOGIN_URL = f"{BASE_URL}/ints/Login"
 SMS_PAGE_URL = f"{BASE_URL}/ints/agent/SMSCDRReports"
 
-# Platform emoji mapping with short codes
-PLATFORM_EMOJIS = {
-    "TELEGRAM": "🪁TG",
-    "WHATSAPP": "💚WS",
-    "FACEBOOK": "📘FB",
-    "INSTAGRAM": "📸IG",
-    "GMAIL": "📧GM",
-    "APPLE": "🍎AP",
-    "OTHER": "📱OT"
-}
-
 IS_RAILWAY = os.environ.get('RAILWAY_ENVIRONMENT') is not None
-# =================================
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +42,93 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ========== COUNTRY DATA (100+ countries with flags and short codes) ==========
+COUNTRIES = {
+    # Africa
+    '20': ('🇪🇬', '#EG'), '212': ('🇲🇦', '#MA'), '213': ('🇩🇿', '#DZ'), '216': ('🇹🇳', '#TN'),
+    '218': ('🇱🇾', '#LY'), '221': ('🇸🇳', '#SN'), '222': ('🇲🇷', '#MR'), '223': ('🇲🇱', '#ML'),
+    '224': ('🇬🇳', '#GN'), '225': ('🇨🇮', '#CI'), '226': ('🇧🇫', '#BF'), '227': ('🇳🇪', '#NE'),
+    '228': ('🇹🇬', '#TG'), '229': ('🇧🇯', '#BJ'), '230': ('🇲🇺', '#MU'), '231': ('🇱🇷', '#LR'),
+    '232': ('🇸🇱', '#SL'), '233': ('🇬🇭', '#GH'), '234': ('🇳🇬', '#NG'), '235': ('🇹🇩', '#TD'),
+    '236': ('🇨🇫', '#CF'), '237': ('🇨🇲', '#CM'), '238': ('🇨🇻', '#CV'), '239': ('🇸🇹', '#ST'),
+    '240': ('🇬🇶', '#GQ'), '241': ('🇬🇦', '#GA'), '242': ('🇨🇬', '#CG'), '243': ('🇨🇩', '#CD'),
+    '244': ('🇦🇴', '#AO'), '245': ('🇬🇼', '#GW'), '246': ('🇮🇴', '#IO'), '247': ('🇦🇨', '#AC'),
+    '248': ('🇸🇨', '#SC'), '249': ('🇸🇩', '#SD'), '250': ('🇷🇼', '#RW'), '251': ('🇪🇹', '#ET'),
+    '252': ('🇸🇴', '#SO'), '253': ('🇩🇯', '#DJ'), '254': ('🇰🇪', '#KE'), '255': ('🇹🇿', '#TZ'),
+    '256': ('🇺🇬', '#UG'), '257': ('🇧🇮', '#BI'), '258': ('🇲🇿', '#MZ'), '259': ('🇿🇼', '#ZW'),
+    '260': ('🇿🇲', '#ZM'), '261': ('🇲🇬', '#MG'), '262': ('🇷🇪', '#RE'), '263': ('🇿🇼', '#ZW'),
+    '264': ('🇳🇦', '#NA'), '265': ('🇲🇼', '#MW'), '266': ('🇱🇸', '#LS'), '267': ('🇧🇼', '#BW'),
+    '268': ('🇸🇿', '#SZ'), '269': ('🇰🇲', '#KM'), '27': ('🇿🇦', '#ZA'), '290': ('🇸🇭', '#SH'),
+    '291': ('🇪🇷', '#ER'), '298': ('🇫🇴', '#FO'), '299': ('🇬🇱', '#GL'),
+    
+    # Asia
+    '81': ('🇯🇵', '#JP'), '82': ('🇰🇷', '#KR'), '84': ('🇻🇳', '#VN'), '850': ('🇰🇵', '#KP'),
+    '852': ('🇭🇰', '#HK'), '853': ('🇲🇴', '#MO'), '855': ('🇰🇭', '#KH'), '856': ('🇱🇦', '#LA'),
+    '86': ('🇨🇳', '#CN'), '880': ('🇧🇩', '#BD'), '886': ('🇹🇼', '#TW'), '90': ('🇹🇷', '#TR'),
+    '91': ('🇮🇳', '#IN'), '92': ('🇵🇰', '#PK'), '93': ('🇦🇫', '#AF'), '94': ('🇱🇰', '#LK'),
+    '95': ('🇲🇲', '#MM'), '960': ('🇲🇻', '#MV'), '961': ('🇱🇧', '#LB'), '962': ('🇯🇴', '#JO'),
+    '963': ('🇸🇾', '#SY'), '964': ('🇮🇶', '#IQ'), '965': ('🇰🇼', '#KW'), '966': ('🇸🇦', '#SA'),
+    '967': ('🇾🇪', '#YE'), '968': ('🇴🇲', '#OM'), '970': ('🇵🇸', '#PS'), '971': ('🇦🇪', '#AE'),
+    '972': ('🇮🇱', '#IL'), '973': ('🇧🇭', '#BH'), '974': ('🇶🇦', '#QA'), '975': ('🇧🇹', '#BT'),
+    '976': ('🇲🇳', '#MN'), '977': ('🇳🇵', '#NP'), '98': ('🇮🇷', '#IR'), '992': ('🇹🇯', '#TJ'),
+    '993': ('🇹🇲', '#TM'), '994': ('🇦🇿', '#AZ'), '995': ('🇬🇪', '#GE'), '996': ('🇰🇬', '#KG'),
+    '998': ('🇺🇿', '#UZ'),
+    
+    # Europe
+    '30': ('🇬🇷', '#GR'), '31': ('🇳🇱', '#NL'), '32': ('🇧🇪', '#BE'), '33': ('🇫🇷', '#FR'),
+    '34': ('🇪🇸', '#ES'), '350': ('🇬🇮', '#GI'), '351': ('🇵🇹', '#PT'), '352': ('🇱🇺', '#LU'),
+    '353': ('🇮🇪', '#IE'), '354': ('🇮🇸', '#IS'), '355': ('🇦🇱', '#AL'), '356': ('🇲🇹', '#MT'),
+    '357': ('🇨🇾', '#CY'), '358': ('🇫🇮', '#FI'), '359': ('🇧🇬', '#BG'), '36': ('🇭🇺', '#HU'),
+    '370': ('🇱🇹', '#LT'), '371': ('🇱🇻', '#LV'), '372': ('🇪🇪', '#EE'), '373': ('🇲🇩', '#MD'),
+    '374': ('🇦🇲', '#AM'), '375': ('🇧🇾', '#BY'), '376': ('🇦🇩', '#AD'), '377': ('🇲🇨', '#MC'),
+    '378': ('🇸🇲', '#SM'), '379': ('🇻🇦', '#VA'), '380': ('🇺🇦', '#UA'), '381': ('🇷🇸', '#RS'),
+    '382': ('🇲🇪', '#ME'), '383': ('🇽🇰', '#XK'), '385': ('🇭🇷', '#HR'), '386': ('🇸🇮', '#SI'),
+    '387': ('🇧🇦', '#BA'), '389': ('🇲🇰', '#MK'), '39': ('🇮🇹', '#IT'), '40': ('🇷🇴', '#RO'),
+    '41': ('🇨🇭', '#CH'), '420': ('🇨🇿', '#CZ'), '421': ('🇸🇰', '#SK'), '423': ('🇱🇮', '#LI'),
+    '43': ('🇦🇹', '#AT'), '44': ('🇬🇧', '#UK'), '45': ('🇩🇰', '#DK'), '46': ('🇸🇪', '#SE'),
+    '47': ('🇳🇴', '#NO'), '48': ('🇵🇱', '#PL'), '49': ('🇩🇪', '#DE'),
+    
+    # North America
+    '1': ('🇺🇸', '#US'), '1242': ('🇧🇸', '#BS'), '1246': ('🇧🇧', '#BB'), '1264': ('🇦🇮', '#AI'),
+    '1268': ('🇦🇬', '#AG'), '1284': ('🇻🇬', '#VG'), '1340': ('🇻🇮', '#VI'), '1345': ('🇰🇾', '#KY'),
+    '1441': ('🇧🇲', '#BM'), '1473': ('🇬🇩', '#GD'), '1649': ('🇹🇨', '#TC'), '1664': ('🇲🇸', '#MS'),
+    '1670': ('🇲🇵', '#MP'), '1671': ('🇬🇺', '#GU'), '1684': ('🇦🇸', '#AS'), '1721': ('🇸🇽', '#SX'),
+    '1758': ('🇱🇨', '#LC'), '1767': ('🇩🇲', '#DM'), '1784': ('🇻🇨', '#VC'), '1809': ('🇩🇴', '#DO'),
+    '1829': ('🇩🇴', '#DO'), '1849': ('🇩🇴', '#DO'), '1868': ('🇹🇹', '#TT'), '1869': ('🇰🇳', '#KN'),
+    '1876': ('🇯🇲', '#JM'), '1939': ('🇵🇷', '#PR'),
+    
+    # South America
+    '500': ('🇫🇰', '#FK'), '501': ('🇧🇿', '#BZ'), '502': ('🇬🇹', '#GT'), '503': ('🇸🇻', '#SV'),
+    '504': ('🇭🇳', '#HN'), '505': ('🇳🇮', '#NI'), '506': ('🇨🇷', '#CR'), '507': ('🇵🇦', '#PA'),
+    '508': ('🇵🇲', '#PM'), '509': ('🇭🇹', '#HT'), '51': ('🇵🇪', '#PE'), '52': ('🇲🇽', '#MX'),
+    '53': ('🇨🇺', '#CU'), '54': ('🇦🇷', '#AR'), '55': ('🇧🇷', '#BR'), '56': ('🇨🇱', '#CL'),
+    '57': ('🇨🇴', '#CO'), '58': ('🇻🇪', '#VE'), '591': ('🇧🇴', '#BO'), '592': ('🇬🇾', '#GY'),
+    '593': ('🇪🇨', '#EC'), '594': ('🇬🇫', '#GF'), '595': ('🇵🇾', '#PY'), '596': ('🇲🇶', '#MQ'),
+    '597': ('🇸🇷', '#SR'), '598': ('🇺🇾', '#UY'), '599': ('🇧🇶', '#BQ'),
+    
+    # Oceania
+    '61': ('🇦🇺', '#AU'), '64': ('🇳🇿', '#NZ'), '674': ('🇳🇷', '#NR'), '675': ('🇵🇬', '#PG'),
+    '676': ('🇹🇴', '#TO'), '677': ('🇸🇧', '#SB'), '678': ('🇻🇺', '#VU'), '679': ('🇫🇯', '#FJ'),
+    '680': ('🇵🇼', '#PW'), '681': ('🇼🇫', '#WF'), '682': ('🇨🇰', '#CK'), '683': ('🇳🇺', '#NU'),
+    '685': ('🇼🇸', '#WS'), '686': ('🇰🇮', '#KI'), '687': ('🇳🇨', '#NC'), '688': ('🇹🇻', '#TV'),
+    '689': ('🇵🇫', '#PF'), '690': ('🇹🇰', '#TK'), '691': ('🇫🇲', '#FM'), '692': ('🇲🇭', '#MH'),
+}
+
+# ========== PLATFORM EMOJI MAPPING (Full Names) ==========
+PLATFORM_NAMES = {
+    'whatsapp': ('💚', 'WhatsApp'), 'telegram': ('🪁', 'Telegram'), 'facebook': ('📘', 'Facebook'),
+    'fb': ('📘', 'Facebook'), 'instagram': ('📸', 'Instagram'), 'ig': ('📸', 'Instagram'),
+    'gmail': ('📧', 'Gmail'), 'google': ('🔍', 'Google'), 'apple': ('🍎', 'Apple'),
+    'icloud': ('🍎', 'Apple'), 'binance': ('📊', 'Binance'), 'crypto': ('💰', 'Crypto'),
+    'microsoft': ('💻', 'Microsoft'), 'outlook': ('📧', 'Outlook'), 'amazon': ('📦', 'Amazon'),
+    'paypal': ('💰', 'PayPal'), 'discord': ('🎮', 'Discord'), 'spotify': ('🎵', 'Spotify'),
+    'netflix': ('🎬', 'Netflix'), 'tiktok': ('🎵', 'TikTok'), 'signal': ('🔒', 'Signal'),
+    'twitter': ('🐦', 'Twitter'), 'x.com': ('🐦', 'X'), 'linkedin': ('🔗', 'LinkedIn'),
+    'snapchat': ('👻', 'Snapchat'), 'reddit': ('🤖', 'Reddit'), 'twitch': ('🎮', 'Twitch'),
+    'uber': ('🚗', 'Uber'), 'ola': ('🚗', 'Ola'), 'deliveroo': ('🍔', 'Deliveroo'),
+    'zomato': ('🍕', 'Zomato'), 'swiggy': ('🍔', 'Swiggy'), 'mama money': ('💰', 'Mama Money'),
+    'msaverify': ('✅', 'msaverify'), 'psa verify': ('✅', 'PSA Verify'),
+}
 
 class OTPBot:
     def __init__(self):
@@ -67,63 +139,54 @@ class OTPBot:
         self.is_monitoring = True
         self.refresh_counter = 0
         
-        logger.info("Bolt SMS OTP Monitor Bot Initialized")
-        if IS_RAILWAY:
-            logger.info("Running on Railway (Headless Mode)")
-        else:
-            logger.info("Running on Local PC (Browser Mode)")
+        logger.info("🤖 Complete OTP Bot Initialized")
     
-    def get_country_flag_and_code(self, phone_number):
-        """Get country flag emoji and country code from phone number"""
+    def get_country_info(self, phone_number):
+        """Get country flag and short code from phone number"""
         try:
             clean_number = re.sub(r'\D', '', str(phone_number))
             
-            if clean_number.startswith('263'):
-                return "🇿🇼", "#ZW"
-            elif clean_number.startswith('880'):
-                return "🇧🇩", "#BD"
-            elif clean_number.startswith('91'):
-                return "🇮🇳", "#IN"
-            elif clean_number.startswith('92'):
-                return "🇵🇰", "#PK"
-            elif clean_number.startswith('1'):
-                return "🇺🇸", "#US"
-            elif clean_number.startswith('44'):
-                return "🇬🇧", "#UK"
-            elif clean_number.startswith('234'):
-                return "🇳🇬", "#NG"
-            elif clean_number.startswith('20'):
-                return "🇪🇬", "#EG"
-            elif clean_number.startswith('966'):
-                return "🇸🇦", "#SA"
-            elif clean_number.startswith('971'):
-                return "🇦🇪", "#AE"
-            else:
-                return "🌍", "#??"
+            # Sort by length (longest first) to match properly
+            sorted_codes = sorted(COUNTRIES.keys(), key=len, reverse=True)
+            
+            for code in sorted_codes:
+                if clean_number.startswith(code):
+                    return COUNTRIES[code]
+            
+            return "🌍", "#??"
         except:
             return "🌍", "#??"
     
-    def send_otp_to_telegram(self, country_flag, country_code, platform, number, otp):
-        """Send OTP to Telegram - with copy_text feature (click to copy)"""
+    def get_platform_info(self, client_name, message):
+        """Get platform emoji and full name"""
+        combined = f"{client_name} {message}".lower()
+        
+        for key, (emoji, name) in PLATFORM_NAMES.items():
+            if key in combined:
+                return emoji, name
+        
+        # Return client name if no match
+        if client_name and client_name.strip():
+            return "📱", client_name.strip()
+        
+        return "📱", "Other"
+    
+    def hide_phone(self, phone):
+        """Hide phone number - show only first 4 and last 4 digits"""
+        phone_str = re.sub(r'\D', '', str(phone))
+        if len(phone_str) >= 8:
+            return phone_str[:4] + "****" + phone_str[-4:]
+        elif len(phone_str) >= 4:
+            return phone_str[:2] + "***" + phone_str[-2:]
+        return phone_str
+    
+    def send_otp_to_telegram(self, country_flag, country_code, platform_emoji, platform_name, masked_number, otp):
+        """Send OTP to Telegram with click-to-copy feature"""
         try:
-            # Get platform emoji with short code (e.g., 🪁TG, 💚WS, 📘FB)
-            platform_display = PLATFORM_EMOJIS.get(platform.upper(), "📱OT")
+            # Format: 🇿🇼 #ZW 💚 WhatsApp 2637****8341
+            message = f"{country_flag} {country_code} {platform_emoji} {platform_name} {masked_number}"
             
-            # Mask the number
-            number_str = re.sub(r'\D', '', str(number))
-            if len(number_str) >= 8:
-                formatted_number = number_str[:4] + "****" + number_str[-4:]
-            elif len(number_str) >= 4:
-                formatted_number = number_str[:2] + "***" + number_str[-2:]
-            else:
-                formatted_number = number_str
-            
-            # Simple message - flag country_code platform_display masked_number
-            # Example: 🇿🇼 #ZW 🪁TG 2637****8341
-            message = f"{country_flag} {country_code} {platform_display} {formatted_number}"
-            
-            # Keyboard with copy_text feature - OTP ক্লিক করলেই কপি হবে
-            # This uses the exact format you requested: {"text": "284729", "copy_text": {"text": "284729"}}
+            # Create keyboard with clickable OTP button
             keyboard = {
                 "inline_keyboard": [
                     [
@@ -145,7 +208,6 @@ class OTPBot:
                 ]
             }
             
-            # Send using requests
             response = requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
                 json={
@@ -159,7 +221,7 @@ class OTPBot:
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ OTP sent: {otp} for {platform}")
+                logger.info(f"✅ OTP sent: {otp} for {platform_name}")
                 return True
             else:
                 logger.error(f"Failed to send: {response.status_code}")
@@ -184,25 +246,22 @@ class OTPBot:
                 chrome_options.add_argument('--disable-extensions')
                 chrome_options.add_argument('--disable-setuid-sandbox')
                 chrome_options.add_argument('--remote-debugging-port=9222')
-                
                 chrome_options.binary_location = "/usr/bin/google-chrome"
                 service = Service(executable_path="/usr/local/bin/chromedriver")
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                logger.info("Browser opened on Railway (Headless Mode)")
+                logger.info("✅ Browser opened on Railway (Headless Mode)")
             else:
                 # Local PC
                 chromedriver_path = r"C:\Users\mamun\Desktop\chromedriver.exe"
                 if not os.path.exists(chromedriver_path):
-                    logger.error(f"ChromeDriver not found at: {chromedriver_path}")
+                    logger.error(f"❌ ChromeDriver not found at: {chromedriver_path}")
                     return False
-                
                 chrome_options.add_argument('--start-maximized')
                 chrome_options.add_argument('--disable-blink-features=AutomationControlled')
                 chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-                
                 service = Service(chromedriver_path)
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                logger.info("Browser opened on Local PC")
+                logger.info("✅ Browser opened on Local PC")
             
             return True
         except Exception as e:
@@ -212,28 +271,22 @@ class OTPBot:
     def solve_captcha(self):
         try:
             captcha_text = None
-            try:
-                captcha_text = self.driver.find_element(By.XPATH, "//div[contains(text(), 'What is')]").text
-            except:
+            for xpath in ["//div[contains(text(), 'What is')]", "//label[contains(text(), 'What is')]", "//span[contains(text(), '+')]"]:
                 try:
-                    captcha_text = self.driver.find_element(By.XPATH, "//label[contains(text(), 'What is')]").text
+                    captcha_text = self.driver.find_element(By.XPATH, xpath).text
+                    if captcha_text:
+                        break
                 except:
-                    try:
-                        captcha_text = self.driver.find_element(By.CLASS_NAME, "captcha").text
-                    except:
-                        pass
+                    continue
             
             if captcha_text:
                 match = re.search(r'(\d+)\s*\+\s*(\d+)', captcha_text)
                 if match:
-                    num1 = int(match.group(1))
-                    num2 = int(match.group(2))
-                    result = num1 + num2
-                    logger.info(f"Captcha: {num1} + {num2} = {result}")
-                    
+                    result = int(match.group(1)) + int(match.group(2))
                     captcha_input = self.driver.find_element(By.NAME, "capt")
                     captcha_input.clear()
                     captcha_input.send_keys(str(result))
+                    logger.info(f"✅ Captcha solved: {match.group(1)} + {match.group(2)} = {result}")
                     return True
             return False
         except Exception as e:
@@ -242,135 +295,83 @@ class OTPBot:
     
     def auto_login(self):
         try:
-            logger.info("Logging in...")
-            
+            logger.info("🔐 Logging in...")
             self.driver.get(LOGIN_URL)
             time.sleep(5)
             
-            # Wait for username field
             username_field = WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.NAME, "username"))
             )
             username_field.clear()
             username_field.send_keys(USERNAME)
-            logger.info(f"Username: {USERNAME}")
+            logger.info(f"✅ Username: {USERNAME}")
             
-            # Password field
             password_field = self.driver.find_element(By.NAME, "password")
             password_field.clear()
             password_field.send_keys(PASSWORD)
-            logger.info("Password entered")
-            
+            logger.info("✅ Password entered")
             time.sleep(2)
             
-            # Solve captcha
             self.solve_captcha()
             time.sleep(1)
             
-            # Try multiple ways to find and click login button
             login_clicked = False
+            for selector in ["//button[@type='submit']", "//input[@type='submit']"]:
+                try:
+                    self.driver.find_element(By.XPATH, selector).click()
+                    login_clicked = True
+                    logger.info("✅ Login button clicked")
+                    break
+                except:
+                    continue
             
-            # Method 1: Button with type submit
-            try:
-                login_btn = self.driver.find_element(By.XPATH, "//button[@type='submit']")
-                login_btn.click()
-                login_clicked = True
-                logger.info("Login button clicked")
-            except:
-                pass
-            
-            # Method 2: Input with type submit
             if not login_clicked:
                 try:
-                    login_btn = self.driver.find_element(By.XPATH, "//input[@type='submit']")
-                    login_btn.click()
-                    login_clicked = True
-                    logger.info("Login button clicked")
+                    self.driver.find_element(By.TAG_NAME, "form").submit()
+                    logger.info("✅ Form submitted")
                 except:
-                    pass
+                    logger.error("❌ Could not find login button")
+                    return False
             
-            # Method 3: Submit form directly
-            if not login_clicked:
-                try:
-                    form = self.driver.find_element(By.TAG_NAME, "form")
-                    form.submit()
-                    login_clicked = True
-                    logger.info("Form submitted")
-                except:
-                    pass
-            
-            if not login_clicked:
-                logger.error("Could not find login button!")
-                return False
-            
-            # Wait for login to complete
             time.sleep(8)
-            
             current_url = self.driver.current_url
-            logger.info(f"URL after login: {current_url}")
+            logger.info(f"📍 URL after login: {current_url}")
             
-            # Check if login successful
             if 'agent' in current_url or 'Dashboard' in current_url or 'SMS' in current_url:
-                logger.info("LOGIN SUCCESSFUL!")
+                logger.info("✅✅✅ LOGIN SUCCESSFUL! ✅✅✅")
                 self.logged_in = True
-                
-                # Go to SMS page
                 self.driver.get(SMS_PAGE_URL)
                 time.sleep(8)
-                logger.info("SMS page loaded")
+                logger.info("📱 SMS page loaded")
                 return True
             else:
-                logger.error("Login failed")
+                logger.error("❌ Login failed")
                 return False
                 
         except Exception as e:
             logger.error(f"Login error: {e}")
             return False
     
-    def extract_platform(self, message, client):
-        """Extract platform name from message and client"""
-        message_lower = message.lower()
-        
-        if 'telegram' in message_lower:
-            return "TELEGRAM"
-        elif 'whatsapp' in message_lower:
-            return "WHATSAPP"
-        elif 'facebook' in message_lower or 'fb' in message_lower:
-            return "FACEBOOK"
-        elif 'instagram' in message_lower:
-            return "INSTAGRAM"
-        elif 'gmail' in message_lower or 'google' in message_lower:
-            return "GMAIL"
-        elif 'apple' in message_lower or 'icloud' in message_lower:
-            return "APPLE"
-        else:
-            return "OTHER"
-    
     def extract_otp(self, message):
-        """Extract OTP code from message - supports 4-8 digit codes"""
+        """Extract OTP code - supports 4-10 digit codes and patterns"""
         if not isinstance(message, str):
             return None
         
-        # Pattern 1: #16010 (Facebook)
-        match = re.search(r'#(\d{4,8})', message)
-        if match:
-            return match.group(1)
+        patterns = [
+            r'#(\d{4,10})',
+            r'(?:code|CODE|OTP|otp)[:\s]*(\d{4,10})',
+            r'is[:\s]*(\d{4,10})',
+            r'verification code[:\s]*(\d{4,10})',
+            r'(\d{4,10})',
+        ]
         
-        # Pattern 2: code 47543 or CODE 47543
-        match = re.search(r'(?:code|CODE|OTP|otp)[:\s]*(\d{4,8})', message)
-        if match:
-            return match.group(1)
-        
-        # Pattern 3: is 342761
-        match = re.search(r'is[:\s]*(\d{4,8})', message)
-        if match:
-            return match.group(1)
-        
-        # Pattern 4: any 4-8 digit number
-        numbers = re.findall(r'\b(\d{4,8})\b', message)
-        for num in numbers:
-            if not num.startswith(('263', '880', '1', '44', '91', '92', '234')):
-                return num
+        for pattern in patterns:
+            match = re.search(pattern, message)
+            if match:
+                otp = match.group(1)
+                # Don't return phone numbers as OTP
+                if not otp.startswith(('263', '880', '1', '44', '91', '92', '234', '966', '971')):
+                    return otp
         
         return None
     
@@ -378,7 +379,6 @@ class OTPBot:
         """Get SMS messages from the page"""
         try:
             time.sleep(1)
-            
             rows = self.driver.find_elements(By.XPATH, "//table/tbody/tr")
             if not rows:
                 return []
@@ -386,30 +386,30 @@ class OTPBot:
             sms_list = []
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
-                if len(cols) >= 6:
-                    message_text = cols[5].text.strip()
+                if len(cols) >= 5:
+                    message_text = cols[4].text.strip() if len(cols) > 4 else ""
                     # Skip REG-PS messages
-                    if message_text.startswith('REG-PS'):
+                    if message_text.startswith('REG-PS') or message_text.startswith('REG-RESP'):
                         continue
                     
                     sms_list.append({
-                        'time': cols[0].text.strip(),
-                        'phone': cols[2].text.strip(),
-                        'client': cols[4].text.strip(),
+                        'time': cols[0].text.strip() if len(cols) > 0 else "",
+                        'phone': cols[1].text.strip() if len(cols) > 1 else "",
+                        'client': cols[2].text.strip() if len(cols) > 2 else "",
                         'message': message_text
                     })
             
             if sms_list:
-                logger.info(f"Found {len(sms_list)} valid SMS messages")
+                logger.info(f"📊 Found {len(sms_list)} valid SMS messages")
             return sms_list
         except Exception as e:
             logger.error(f"Get SMS error: {e}")
             return []
     
     async def monitor(self):
-        """Main monitoring loop"""
-        logger.info("Starting OTP monitor (0.5 sec interval)...")
-        logger.info("Browser will refresh every 1.5 seconds")
+        """Main monitoring loop - 0.5 sec check, 1.5 sec refresh"""
+        logger.info("🚀 Starting OTP monitor (0.5 sec interval)...")
+        logger.info("🔄 Browser will refresh every 1.5 seconds")
         
         while self.is_monitoring:
             try:
@@ -424,34 +424,36 @@ class OTPBot:
                             sms_id = f"{sms['phone']}_{otp}"
                             
                             if sms_id not in self.processed_otps:
-                                platform = self.extract_platform(sms['message'], sms['client'])
-                                flag, country_code = self.get_country_flag_and_code(sms['phone'])
+                                country_flag, country_code = self.get_country_info(sms['phone'])
+                                platform_emoji, platform_name = self.get_platform_info(sms['client'], sms['message'])
+                                masked_number = self.hide_phone(sms['phone'])
                                 
-                                logger.info(f"📱 NEW OTP! {otp} - {sms['phone']} - {platform}")
+                                logger.info(f"🆕 NEW OTP! {otp} - {platform_name} - {sms['phone']}")
                                 
-                                # Send to Telegram
                                 result = self.send_otp_to_telegram(
-                                    flag, country_code, platform, sms['phone'], otp
+                                    country_flag, country_code, platform_emoji, 
+                                    platform_name, masked_number, otp
                                 )
                                 
                                 if result:
                                     self.processed_otps.add(sms_id)
                                     self.total_otps_sent += 1
-                                    logger.info(f"✅ Total OTPs sent: {self.total_otps_sent}")
+                                    logger.info(f"📊 Total OTPs sent: {self.total_otps_sent}")
                                 else:
                                     logger.error(f"❌ Failed to send OTP {otp}")
-                                    
+                                
                                 await asyncio.sleep(0.5)
                 
+                # Check interval (0.5 seconds)
                 elapsed = time.time() - start_time
                 wait_time = max(0, 0.5 - elapsed)
                 await asyncio.sleep(wait_time)
                 
-                # Refresh browser every 1.5 seconds
+                # Refresh browser every 1.5 seconds (3 checks = 1.5 sec)
                 self.refresh_counter += 1
                 if self.refresh_counter >= 3:
                     self.driver.refresh()
-                    logger.debug("Browser refreshed")
+                    logger.debug("🔄 Browser refreshed (1.5 seconds)")
                     self.refresh_counter = 0
                     await asyncio.sleep(1.5)
                     
@@ -473,41 +475,40 @@ class OTPBot:
     async def run(self):
         """Main run method"""
         print("\n" + "="*60)
-        print("BOLT SMS - OTP MONITOR BOT")
+        print("🤖 BOLT SMS - COMPLETE OTP MONITOR BOT")
         print("="*60)
-        print(f"Username: {USERNAME}")
-        print(f"Telegram Chat: {GROUP_CHAT_ID}")
-        print(f"Check Interval: 0.5 seconds")
-        print(f"Browser Refresh: Every 1.5 seconds")
-        print(f"Platform Format: 🪁TG, 💚WS, 📘FB, 📸IG, 📧GM, 🍎AP, 📱OT")
-        print(f"Feature: Click on OTP button to copy (copy_text feature)")
+        print(f"📝 Username: {USERNAME}")
+        print(f"📱 Telegram Chat: {GROUP_CHAT_ID}")
+        print(f"⚡ Check Interval: 0.5 seconds")
+        print(f"🔄 Browser Refresh: Every 1.5 seconds")
+        print(f"🌍 Countries: {len(COUNTRIES)}+ with flags & short codes")
+        print(f"🎨 Platforms: Full names with emojis")
+        print(f"✨ Feature: Click on OTP button to copy")
         if IS_RAILWAY:
-            print("Running on Railway (Headless Mode)")
+            print("🚀 Running on Railway (Headless Mode)")
         else:
-            print("Running on Local PC")
+            print("💻 Running on Local PC")
         print("="*60)
         
-        print("\nSetting up browser...")
+        print("\n🔧 Setting up browser...")
         if not self.setup_browser():
-            print("Browser setup failed!")
+            print("❌ Browser setup failed!")
             return
         
-        print("\nLogging in...")
+        print("\n🔐 Logging in...")
         if not self.auto_login():
-            print("Login failed!")
+            print("❌ Login failed!")
             return
         
-        print("\nLogin successful!")
+        print("\n✅ Login successful!")
         
         print("\n" + "="*60)
-        print("Starting OTP Monitor...")
+        print("🚀 Starting OTP Monitor...")
         print("="*60)
-        print("Checking for new OTPs every 0.5 seconds")
-        print("Browser refreshing every 1.5 seconds")
-        print("Click on the OTP button to copy the code")
-        if not IS_RAILWAY:
-            print("Browser window will stay open")
-        print("Press Ctrl+C to stop")
+        print("📱 Message Format: 🇿🇼 #ZW 💚 WhatsApp 2637****8341")
+        print("🔐 OTP Button: Click to copy the code")
+        print("📢 OTP will be sent to Telegram automatically")
+        print("💾 Press Ctrl+C to stop")
         print("="*60 + "\n")
         
         await self.monitor()
@@ -518,11 +519,11 @@ async def main():
     try:
         await bot.run()
     except KeyboardInterrupt:
-        print("\n\nBot stopped!")
+        print("\n\n🛑 Bot stopped!")
         if bot.driver:
             bot.driver.quit()
-        print(f"Total OTPs sent: {bot.total_otps_sent}")
-        print("Goodbye!")
+        print(f"📊 Total OTPs sent: {bot.total_otps_sent}")
+        print("👋 Goodbye!")
 
 
 if __name__ == "__main__":
