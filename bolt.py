@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-Bolt SMS - Complete OTP Monitor Bot
-- Sends all existing OTPs on startup
-- Monitors for new OTPs
-- 2 second refresh
+Bolt SMS - Complete OTP Monitor Bot (Fixed Async)
 """
 
 import os
@@ -61,7 +58,6 @@ class OTPBot:
         self.total_otps_sent = 0
         self.is_monitoring = True
         self.refresh_counter = 0
-        self.startup_otps_sent = False
         logger.info("🤖 Complete OTP Bot Initialized")
     
     def get_country_info(self, phone_number):
@@ -100,8 +96,8 @@ class OTPBot:
         except:
             return False
     
-    def send_otp_to_telegram(self, country_flag, country_code, platform_emoji, platform_name, masked_number, otp, is_new=True):
-        """Send OTP to Telegram"""
+    async def send_otp_to_telegram(self, country_flag, country_code, platform_emoji, platform_name, masked_number, otp, is_new=True):
+        """Send OTP to Telegram - now async"""
         try:
             if is_new:
                 title = "🆕 NEW OTP!"
@@ -123,7 +119,9 @@ class OTPBot:
                 ]
             }
             
-            response = requests.post(
+            # Run requests in thread pool to avoid blocking (optional, but fine)
+            response = await asyncio.to_thread(
+                requests.post,
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
                 json={
                     "chat_id": GROUP_CHAT_ID,
@@ -227,7 +225,6 @@ class OTPBot:
             return False
     
     def extract_otp(self, message):
-        """Extract OTP from Telegram/WhatsApp messages"""
         if not isinstance(message, str):
             return None
         
@@ -252,7 +249,6 @@ class OTPBot:
             self.handle_alert()
             time.sleep(1)
             
-            # Find all rows in the table
             rows = self.driver.find_elements(By.XPATH, "//table/tbody/tr")
             if not rows:
                 rows = self.driver.find_elements(By.XPATH, "//table//tr")
@@ -263,15 +259,12 @@ class OTPBot:
             sms_list = []
             for row in rows:
                 cols = row.find_elements(By.TAG_NAME, "td")
-                
                 if len(cols) < 2:
                     continue
                 
-                # Based on your screenshot: Col0=CLI, Col1=CLIENT/Message
                 client = cols[0].text.strip()
                 message = cols[1].text.strip()
                 
-                # Only process if it contains code
                 if not message or 'code' not in message.lower():
                     continue
                 
@@ -283,7 +276,6 @@ class OTPBot:
                 })
             
             return sms_list
-            
         except Exception as e:
             logger.error(f"Get SMS error: {e}")
             return []
@@ -323,7 +315,7 @@ class OTPBot:
         
         logger.info(f"✅ Sent {otp_count} existing OTPs")
         
-        # Send startup complete message
+        # Startup complete message
         startup_msg = f"""✅ Bot Started Successfully!
 ━━━━━━━━━━━━━━━━━━━━
 📊 Existing OTPs Sent: {otp_count}
@@ -343,7 +335,8 @@ class OTPBot:
         }
         
         try:
-            requests.post(
+            await asyncio.to_thread(
+                requests.post,
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
                 json={
                     "chat_id": GROUP_CHAT_ID,
