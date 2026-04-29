@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Bolt SMS - Complete OTP Monitor Bot (Fixed for Telegram SMS)
+Bolt SMS - Complete OTP Monitor Bot
+- Sends all existing OTPs on startup
+- Monitors for new OTPs
+- 2 second refresh
 """
 
 import os
@@ -58,6 +61,7 @@ class OTPBot:
         self.total_otps_sent = 0
         self.is_monitoring = True
         self.refresh_counter = 0
+        self.startup_otps_sent = False
         logger.info("🤖 Complete OTP Bot Initialized")
     
     def get_country_info(self, phone_number):
@@ -84,7 +88,7 @@ class OTPBot:
         phone_str = re.sub(r'\D', '', str(phone))
         if len(phone_str) >= 8:
             return phone_str[:4] + "****" + phone_str[-4:]
-        return phone_str or "****"
+        return "2637****0000"
     
     def handle_alert(self):
         try:
@@ -96,13 +100,22 @@ class OTPBot:
         except:
             return False
     
-    def send_otp_to_telegram(self, country_flag, country_code, platform_emoji, platform_name, masked_number, otp):
+    def send_otp_to_telegram(self, country_flag, country_code, platform_emoji, platform_name, masked_number, otp, is_new=True):
+        """Send OTP to Telegram"""
         try:
-            message = f"{country_flag} {country_code} {platform_emoji} {platform_name} {masked_number}"
+            if is_new:
+                title = "🆕 NEW OTP!"
+            else:
+                title = "📜 Previous OTP"
+            
+            message = f"""{title}
+{country_flag} {country_code} {platform_emoji} {platform_name} {masked_number}
+
+🔐 OTP: {otp}"""
             
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": f"{otp}", "copy_text": {"text": otp}}],
+                    [{"text": f"📋 {otp} (Click to copy)", "copy_text": {"text": otp}}],
                     [
                         {"text": "🔢 Number Bot", "url": "https://t.me/Updateotpnew_bot"},
                         {"text": "📢 Main Channel", "url": "https://t.me/updaterange"}
@@ -122,7 +135,7 @@ class OTPBot:
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ OTP sent: {otp}")
+                logger.info(f"✅ OTP sent: {otp} for {platform_name}")
                 return True
             return False
         except Exception as e:
@@ -233,8 +246,8 @@ class OTPBot:
                     return otp
         return None
     
-    def get_sms(self):
-        """Get SMS from your panel's correct structure"""
+    def get_all_sms(self):
+        """Get all SMS from the page"""
         try:
             self.handle_alert()
             time.sleep(1)
@@ -245,7 +258,6 @@ class OTPBot:
                 rows = self.driver.find_elements(By.XPATH, "//table//tr")
             
             if not rows:
-                logger.warning("❌ No rows found")
                 return []
             
             sms_list = []
@@ -259,34 +271,100 @@ class OTPBot:
                 client = cols[0].text.strip()
                 message = cols[1].text.strip()
                 
-                # Only process if it has Telegram/WhatsApp or contains code
-                if not message or (not any(x in message.lower() for x in ['code', 'telegram', 'whatsapp'])):
+                # Only process if it contains code
+                if not message or 'code' not in message.lower():
                     continue
-                
-                logger.info(f"📱 Found: Client={client}, Message={message[:80]}...")
                 
                 sms_list.append({
                     'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'phone': "2637****0000",  # Default phone
+                    'phone': "2637****0000",
                     'client': client,
                     'message': message
                 })
             
-            logger.info(f"📊 Total SMS found: {len(sms_list)}")
             return sms_list
             
         except Exception as e:
             logger.error(f"Get SMS error: {e}")
             return []
     
+    async def send_all_existing_otps(self):
+        """Send all existing OTPs on startup"""
+        logger.info("📤 Sending all existing OTPs...")
+        
+        sms_list = self.get_all_sms()
+        if not sms_list:
+            logger.info("No existing OTPs found")
+            await self.send_otp_to_telegram("🌍", "#??", "📱", "Info", "", "No OTPs found", False)
+            return
+        
+        otp_count = 0
+        for sms in sms_list:
+            otp = self.extract_otp(sms['message'])
+            if otp:
+                sms_id = f"{sms['phone']}_{otp}"
+                if sms_id not in self.processed_otps:
+                    country_flag, country_code = self.get_country_info(sms['phone'])
+                    platform_emoji, platform_name = self.get_platform_info(sms['client'], sms['message'])
+                    masked_number = self.hide_phone(sms['phone'])
+                    
+                    logger.info(f"📜 Sending existing OTP: {otp}")
+                    
+                    result = await self.send_otp_to_telegram(
+                        country_flag, country_code, platform_emoji, 
+                        platform_name, masked_number, otp, False
+                    )
+                    
+                    if result:
+                        self.processed_otps.add(sms_id)
+                        otp_count += 1
+                    
+                    await asyncio.sleep(1)
+        
+        logger.info(f"✅ Sent {otp_count} existing OTPs")
+        
+        # Send startup complete message
+        startup_msg = f"""✅ Bot Started Successfully!
+━━━━━━━━━━━━━━━━━━━━
+📊 Existing OTPs Sent: {otp_count}
+⚡ Check Interval: 0.5 seconds
+🔄 Browser Refresh: Every 2 seconds
+⏰ Started: {datetime.now().strftime('%H:%M:%S')}
+━━━━━━━━━━━━━━━━━━━━
+🤖 @updaterange"""
+        
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "🔢 Number Bot", "url": "https://t.me/Updateotpnew_bot"},
+                    {"text": "📢 Main Channel", "url": "https://t.me/updaterange"}
+                ]
+            ]
+        }
+        
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": GROUP_CHAT_ID,
+                    "text": startup_msg,
+                    "parse_mode": "HTML",
+                    "reply_markup": keyboard,
+                },
+                timeout=10
+            )
+        except:
+            pass
+    
     async def monitor(self):
+        """Monitor for new OTPs"""
         logger.info("🚀 Starting OTP monitor (0.5 sec interval)...")
         logger.info("🔄 Browser will refresh every 2 seconds")
         
         while self.is_monitoring:
             try:
                 start_time = time.time()
-                sms_list = self.get_sms()
+                sms_list = self.get_all_sms()
                 
                 if sms_list:
                     for sms in sms_list:
@@ -301,15 +379,15 @@ class OTPBot:
                                 
                                 logger.info(f"🆕 NEW OTP FOUND: {otp}")
                                 
-                                result = self.send_otp_to_telegram(
+                                result = await self.send_otp_to_telegram(
                                     country_flag, country_code, platform_emoji, 
-                                    platform_name, masked_number, otp
+                                    platform_name, masked_number, otp, True
                                 )
                                 
                                 if result:
                                     self.processed_otps.add(sms_id)
                                     self.total_otps_sent += 1
-                                    logger.info(f"📊 Total: {self.total_otps_sent}")
+                                    logger.info(f"📊 Total new OTPs sent: {self.total_otps_sent}")
                                 
                                 await asyncio.sleep(0.5)
                 
@@ -319,10 +397,13 @@ class OTPBot:
                 # Refresh every 2 seconds
                 self.refresh_counter += 1
                 if self.refresh_counter >= 4:
-                    self.driver.refresh()
-                    logger.debug("🔄 Browser refreshed")
+                    try:
+                        self.driver.refresh()
+                        logger.debug("🔄 Browser refreshed")
+                        await asyncio.sleep(2)
+                    except:
+                        pass
                     self.refresh_counter = 0
-                    await asyncio.sleep(2)
                     
             except Exception as e:
                 logger.error(f"Monitor error: {e}")
@@ -336,15 +417,26 @@ class OTPBot:
         print(f"⚡ Check: 0.5 sec | Refresh: 2 sec")
         print("="*60)
         
+        print("\n🔧 Setting up browser...")
         if not self.setup_browser():
             print("❌ Browser setup failed!")
             return
         
+        print("\n🔐 Logging in...")
         if not self.auto_login():
             print("❌ Login failed!")
             return
         
-        print("\n✅ Bot is running! Waiting for OTPs...")
+        print("\n✅ Login successful!")
+        
+        print("\n📤 Sending existing OTPs...")
+        await self.send_all_existing_otps()
+        
+        print("\n🚀 Starting OTP monitor...")
+        print("📱 Waiting for new OTPs...")
+        print("💾 Press Ctrl+C to stop")
+        print("="*60 + "\n")
+        
         await self.monitor()
 
 
@@ -356,7 +448,8 @@ async def main():
         print("\n\n🛑 Bot stopped!")
         if bot.driver:
             bot.driver.quit()
-        print(f"📊 Total OTPs sent: {bot.total_otps_sent}")
+        print(f"📊 Total new OTPs sent: {bot.total_otps_sent}")
+        print("👋 Goodbye!")
 
 
 if __name__ == "__main__":
