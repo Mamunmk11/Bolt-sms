@@ -5,10 +5,11 @@ Features:
 - Auto detects platform from CLI or message (any platform)
 - Sends all existing OTPs on startup
 - Monitors for new OTPs (0.5 sec check, 2 sec refresh)
-- Country flags with short codes
+- Country flags with short codes (100+ countries)
 - Clickable OTP button
 - Auto-saves new platforms
 - Handles alerts automatically
+- Fixed phone number extraction
 """
 
 import os
@@ -47,7 +48,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ========== COUNTRY DATA (100+ countries) ==========
+# ========== COUNTRY DATA (100+ countries with flags) ==========
 COUNTRIES = {
     # Africa
     '20': ('🇪🇬', '#EG'), '212': ('🇲🇦', '#MA'), '213': ('🇩🇿', '#DZ'), '216': ('🇹🇳', '#TN'),
@@ -103,7 +104,7 @@ COUNTRIES = {
     
     # South America
     '500': ('🇫🇰', '#FK'), '501': ('🇧🇿', '#BZ'), '502': ('🇬🇹', '#GT'), '503': ('🇸🇻', '#SV'),
-    '504': ('🇭🇴', '#HN'), '505': ('🇳🇮', '#NI'), '506': ('🇨🇷', '#CR'), '507': ('🇵🇦', '#PA'),
+    '504': ('🇭🇳', '#HN'), '505': ('🇳🇮', '#NI'), '506': ('🇨🇷', '#CR'), '507': ('🇵🇦', '#PA'),
     '508': ('🇵🇲', '#PM'), '509': ('🇭🇹', '#HT'), '51': ('🇵🇪', '#PE'), '52': ('🇲🇽', '#MX'),
     '53': ('🇨🇺', '#CU'), '54': ('🇦🇷', '#AR'), '55': ('🇧🇷', '#BR'), '56': ('🇨🇱', '#CL'),
     '57': ('🇨🇴', '#CO'), '58': ('🇻🇪', '#VE'), '591': ('🇧🇴', '#BO'), '592': ('🇬🇾', '#GY'),
@@ -179,56 +180,54 @@ class OTPBot:
         """Get country flag and short code from phone number"""
         try:
             clean_number = re.sub(r'\D', '', str(phone_number))
+            if not clean_number:
+                return "🌍", "#??"
+            
             sorted_codes = sorted(COUNTRIES.keys(), key=len, reverse=True)
             for code in sorted_codes:
                 if clean_number.startswith(code):
                     return COUNTRIES[code]
+            
+            # Default for Zimbabwe numbers (263)
+            if clean_number.startswith('263') or len(clean_number) >= 10:
+                return "🇿🇼", "#ZW"
+            
             return "🌍", "#??"
         except:
             return "🌍", "#??"
     
     def get_platform_info(self, cli, message):
-        """Detect platform from CLI column OR message content (Auto-detect any platform)"""
+        """Detect platform from CLI column OR message content"""
         combined = f"{cli} {message}".lower()
         
-        # First check built-in platforms
+        # Check built-in platforms
         for key, (emoji, name) in BUILTIN_PLATFORMS.items():
             if key in combined:
                 logger.info(f"✅ Platform detected (built-in): {name}")
                 return emoji, name
         
-        # Then check custom platforms
+        # Check custom platforms
         for platform_name in self.custom_platforms.keys():
             if platform_name.lower() in combined:
                 logger.info(f"✅ Platform detected (custom): {platform_name}")
                 return "📱", platform_name
         
-        # Try to detect new platform name
-        detected_name = None
-        
-        # Check CLI column
+        # Detect new platform from CLI
         if cli and cli.strip() and len(cli.strip()) > 2:
             detected_name = cli.strip()
             logger.info(f"🔍 New platform detected from CLI: {detected_name}")
-        
-        # If not found in CLI, check message
-        if not detected_name and message:
-            words = message.split()
-            for word in words:
-                word_clean = re.sub(r'[^a-zA-Z]', '', word)
-                if len(word_clean) > 3 and word_clean.lower() not in ['code', 'your', 'is', 'for', 'verification', 'please', 'account', 'login', 'click', 'link', 'https', 'http']:
-                    detected_name = word_clean
-                    logger.info(f"🔍 New platform detected from message: {detected_name}")
-                    break
-        
-        # Save detected platform for future
-        if detected_name:
             self._save_custom_platform(detected_name)
             return "📱", detected_name
         
-        # Fallback
-        if cli and cli.strip():
-            return "📱", cli.strip()
+        # Detect new platform from message
+        if message:
+            words = message.split()
+            for word in words:
+                word_clean = re.sub(r'[^a-zA-Z]', '', word)
+                if len(word_clean) > 3 and word_clean.lower() not in ['code', 'your', 'is', 'for', 'verification', 'please', 'account', 'login', 'click', 'link', 'https', 'http', 'from', 'with']:
+                    logger.info(f"🔍 New platform detected from message: {word_clean}")
+                    self._save_custom_platform(word_clean)
+                    return "📱", word_clean
         
         return "📱", "Other"
     
@@ -239,7 +238,7 @@ class OTPBot:
             return phone_str[:4] + "****" + phone_str[-4:]
         elif len(phone_str) >= 4:
             return phone_str[:2] + "***" + phone_str[-2:]
-        return phone_str
+        return phone_str if phone_str else "****"
     
     def handle_alert(self):
         """Handle any alert popups"""
@@ -443,12 +442,12 @@ class OTPBot:
             match = re.search(pattern, message, re.IGNORECASE)
             if match:
                 otp = match.group(1)
-                if len(otp) >= 4 and not otp.startswith(('263', '880', '1', '44', '91', '92', '234', '966', '971')):
+                if len(otp) >= 4 and not otp.startswith(('263', '880', '1', '44', '91', '92', '234', '966', '971', '20', '27')):
                     return otp
         return None
     
     def get_all_sms(self):
-        """Get all SMS from the page - Correct column mapping"""
+        """Get all SMS from the page - Fixed phone number extraction"""
         try:
             self.handle_alert()
             time.sleep(2)
@@ -470,13 +469,27 @@ class OTPBot:
                     if len(cols) < 5:
                         continue
                     
-                    # Column mapping based on your screenshot:
-                    # Col 0: RANGE | Col 1: NUMBER | Col 2: CLI | Col 3: CLIENT | Col 4: SMS
+                    # Column mapping:
+                    # Col 0: RANGE | Col 1: NUMBER (PHONE!) | Col 2: CLI | Col 3: CLIENT | Col 4: SMS
                     phone = cols[1].text.strip() if len(cols) > 1 else ""
                     cli = cols[2].text.strip() if len(cols) > 2 else ""
                     sms_text = cols[4].text.strip() if len(cols) > 4 else ""
                     
-                    # If SMS column empty but CLI has content, use CLI as message
+                    # If phone is empty, try to extract from row text
+                    if not phone or len(phone) < 8:
+                        row_text = row.text
+                        # Look for Zimbabwe number (263xxxxxxxxx) or any 10-12 digit number
+                        phone_match = re.search(r'\b(263\d{9})\b', row_text)
+                        if phone_match:
+                            phone = phone_match.group(1)
+                            logger.info(f"📱 Phone extracted from row text: {phone}")
+                        else:
+                            phone_match = re.search(r'\b(\d{10,12})\b', row_text)
+                            if phone_match:
+                                phone = phone_match.group(1)
+                                logger.info(f"📱 Phone extracted from row text: {phone}")
+                    
+                    # If SMS column empty but CLI has content
                     if not sms_text and cli:
                         sms_text = cli
                         cli = ""
@@ -484,28 +497,25 @@ class OTPBot:
                     if not sms_text:
                         continue
                     
-                    # Try to get full message (might be truncated in display)
-                    try:
-                        sms_element = cols[4]
-                        full_message = sms_element.get_attribute('title') or sms_element.get_attribute('data-fulltext') or sms_text
-                    except:
-                        full_message = sms_text
-                    
                     # Extract OTP
-                    otp = self.extract_otp(full_message)
+                    otp = self.extract_otp(sms_text)
                     
                     if otp:
-                        # Detect platform from CLI OR message
-                        platform_emoji, platform_name = self.get_platform_info(cli, full_message)
+                        # Detect platform
+                        platform_emoji, platform_name = self.get_platform_info(cli, sms_text)
+                        
+                        # Ensure phone has country code for Zimbabwe
+                        if phone and not phone.startswith('263') and len(phone) == 9:
+                            phone = '263' + phone
                         
                         logger.info(f"📱 Found OTP: {otp} | Phone: {phone} | Platform: {platform_name}")
                         
                         sms_list.append({
                             'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            'phone': phone,
+                            'phone': phone if phone else "2637****0000",
                             'client': platform_name,
                             'platform_emoji': platform_emoji,
-                            'message': full_message,
+                            'message': sms_text,
                             'otp': otp
                         })
                     else:
@@ -517,7 +527,7 @@ class OTPBot:
                             logger.info(f"📱 Found OTP (from row text): {otp} | Phone: {phone}")
                             sms_list.append({
                                 'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                'phone': phone,
+                                'phone': phone if phone else "2637****0000",
                                 'client': platform_name,
                                 'platform_emoji': platform_emoji,
                                 'message': row_text,
