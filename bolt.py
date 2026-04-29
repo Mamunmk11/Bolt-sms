@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Bolt SMS - Complete OTP Monitor Bot (Fixed Async)
+Bolt SMS - Complete OTP Monitor Bot (Fixed for 2-column table)
+Table structure: CLI | SMS (OTP code is in SMS column)
 """
 
 import os
@@ -78,7 +79,7 @@ class OTPBot:
             return "💚", "WhatsApp"
         elif 'facebook' in combined:
             return "📘", "Facebook"
-        return "📱", client_name if client_name else "Other"
+        return "📱", client_name if client_name else "Unknown"
     
     def hide_phone(self, phone):
         phone_str = re.sub(r'\D', '', str(phone))
@@ -97,7 +98,7 @@ class OTPBot:
             return False
     
     async def send_otp_to_telegram(self, country_flag, country_code, platform_emoji, platform_name, masked_number, otp, is_new=True):
-        """Send OTP to Telegram - now async"""
+        """Send OTP to Telegram"""
         try:
             if is_new:
                 title = "🆕 NEW OTP!"
@@ -107,7 +108,7 @@ class OTPBot:
             message = f"""{title}
 {country_flag} {country_code} {platform_emoji} {platform_name} {masked_number}
 
-🔐 OTP: {otp}"""
+🔐 OTP: `{otp}`"""
             
             keyboard = {
                 "inline_keyboard": [
@@ -119,21 +120,20 @@ class OTPBot:
                 ]
             }
             
-            # Run requests in thread pool to avoid blocking (optional, but fine)
             response = await asyncio.to_thread(
                 requests.post,
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
                 json={
                     "chat_id": GROUP_CHAT_ID,
                     "text": message,
-                    "parse_mode": "HTML",
+                    "parse_mode": "Markdown",
                     "reply_markup": keyboard,
                 },
                 timeout=10
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ OTP sent: {otp} for {platform_name}")
+                logger.info(f"✅ OTP sent: {otp}")
                 return True
             return False
         except Exception as e:
@@ -213,7 +213,7 @@ class OTPBot:
                 logger.info("✅ LOGIN SUCCESSFUL!")
                 self.logged_in = True
                 self.driver.get(SMS_PAGE_URL)
-                time.sleep(8)
+                time.sleep(10)  # বেশি সময় দিন পেজ লোডের জন্য
                 self.handle_alert()
                 logger.info("📱 SMS page loaded")
                 return True
@@ -225,6 +225,7 @@ class OTPBot:
             return False
     
     def extract_otp(self, message):
+        """Extract OTP from message"""
         if not isinstance(message, str):
             return None
         
@@ -232,6 +233,7 @@ class OTPBot:
             r'Telegram code[:\s]*(\d{4,8})',
             r'WhatsApp code[:\s]*(\d{4,8})',
             r'code[:\s]*(\d{4,8})',
+            r'verification code[:\s]*(\d{4,8})',
             r'(\d{5,8})',
         ]
         
@@ -244,38 +246,82 @@ class OTPBot:
         return None
     
     def get_all_sms(self):
-        """Get all SMS from the page"""
+        """Get all SMS from the page - Your table has 2 columns: CLI | SMS"""
         try:
             self.handle_alert()
-            time.sleep(1)
+            time.sleep(2)
             
+            # Find all table rows
             rows = self.driver.find_elements(By.XPATH, "//table/tbody/tr")
             if not rows:
                 rows = self.driver.find_elements(By.XPATH, "//table//tr")
             
             if not rows:
+                logger.warning("❌ No rows found")
                 return []
             
             sms_list = []
             for row in rows:
-                cols = row.find_elements(By.TAG_NAME, "td")
-                if len(cols) < 2:
+                try:
+                    cols = row.find_elements(By.TAG_NAME, "td")
+                    
+                    # Skip if less than 2 columns
+                    if len(cols) < 2:
+                        continue
+                    
+                    # Your table structure:
+                    # Col 0: CLI (Telegram, WhatsApp, etc.)
+                    # Col 1: SMS (Full message with OTP code)
+                    
+                    cli = cols[0].text.strip()
+                    sms_text = cols[1].text.strip()
+                    
+                    # If SMS column is empty but CLI has text, use CLI as message
+                    if not sms_text and cli:
+                        sms_text = cli
+                        cli = "Unknown"
+                    
+                    if not sms_text:
+                        continue
+                    
+                    # Check if this row has OTP code
+                    otp = self.extract_otp(sms_text)
+                    
+                    if otp:
+                        logger.info(f"📱 Found OTP: {otp} from CLI: {cli}")
+                        
+                        sms_list.append({
+                            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'phone': "2637****0000",
+                            'client': cli if cli else "Telegram",
+                            'message': sms_text,
+                            'otp': otp
+                        })
+                    else:
+                        logger.debug(f"⏭️ Skipping row (no OTP): {sms_text[:50]}")
+                        
+                except Exception as e:
+                    logger.debug(f"Row parse error: {e}")
                     continue
-                
-                client = cols[0].text.strip()
-                message = cols[1].text.strip()
-                
-                if not message or 'code' not in message.lower():
-                    continue
-                
-                sms_list.append({
-                    'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'phone': "2637****0000",
-                    'client': client,
-                    'message': message
-                })
+            
+            logger.info(f"📊 Total OTPs found: {len(sms_list)}")
+            
+            # If no OTPs found in table, search page text directly
+            if not sms_list:
+                page_text = self.driver.find_element(By.TAG_NAME, "body").text
+                direct_otps = re.findall(r'Telegram code[:\s]*(\d{4,8})', page_text, re.IGNORECASE)
+                for otp in direct_otps:
+                    logger.info(f"🔍 Found OTP directly in page: {otp}")
+                    sms_list.append({
+                        'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'phone': "2637****0000",
+                        'client': "Telegram",
+                        'message': f"Telegram code {otp}",
+                        'otp': otp
+                    })
             
             return sms_list
+            
         except Exception as e:
             logger.error(f"Get SMS error: {e}")
             return []
@@ -292,7 +338,7 @@ class OTPBot:
         
         otp_count = 0
         for sms in sms_list:
-            otp = self.extract_otp(sms['message'])
+            otp = sms.get('otp') or self.extract_otp(sms['message'])
             if otp:
                 sms_id = f"{sms['phone']}_{otp}"
                 if sms_id not in self.processed_otps:
@@ -315,13 +361,13 @@ class OTPBot:
         
         logger.info(f"✅ Sent {otp_count} existing OTPs")
         
-        # Startup complete message
-        startup_msg = f"""✅ Bot Started Successfully!
+        # Send startup complete message
+        startup_msg = f"""✅ **Bot Started Successfully!**
 ━━━━━━━━━━━━━━━━━━━━
-📊 Existing OTPs Sent: {otp_count}
-⚡ Check Interval: 0.5 seconds
-🔄 Browser Refresh: Every 2 seconds
-⏰ Started: {datetime.now().strftime('%H:%M:%S')}
+📊 **Existing OTPs Sent:** {otp_count}
+⚡ **Check Interval:** 0.5 seconds
+🔄 **Browser Refresh:** Every 2 seconds
+⏰ **Started:** {datetime.now().strftime('%H:%M:%S')}
 ━━━━━━━━━━━━━━━━━━━━
 🤖 @updaterange"""
         
@@ -341,7 +387,7 @@ class OTPBot:
                 json={
                     "chat_id": GROUP_CHAT_ID,
                     "text": startup_msg,
-                    "parse_mode": "HTML",
+                    "parse_mode": "Markdown",
                     "reply_markup": keyboard,
                 },
                 timeout=10
@@ -361,7 +407,7 @@ class OTPBot:
                 
                 if sms_list:
                     for sms in sms_list:
-                        otp = self.extract_otp(sms['message'])
+                        otp = sms.get('otp') or self.extract_otp(sms['message'])
                         if otp:
                             sms_id = f"{sms['phone']}_{otp}"
                             
